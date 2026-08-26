@@ -36,6 +36,10 @@ interface InventoryContextType {
   updateProduct: (id: string, updates: Partial<Product>) => void;
   deleteProduct: (id: string) => void;
   setProducts: React.Dispatch<React.SetStateAction<Product[]>>;
+  setEntries: React.Dispatch<React.SetStateAction<StockEntry[]>>;
+  setExits: React.Dispatch<React.SetStateAction<StockExit[]>>;
+  setUsers: React.Dispatch<React.SetStateAction<User[]>>;
+  setAuditLogs: React.Dispatch<React.SetStateAction<AuditLogEntry[]>>;
   registerStockEntry: (entryData: {
     productId: string;
     quantity: number;
@@ -767,6 +771,10 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         updateProduct,
         deleteProduct,
         setProducts,
+        setEntries,
+        setExits,
+        setUsers,
+        setAuditLogs,
         registerStockEntry,
         registerStockExit,
         deleteStockEntry,
