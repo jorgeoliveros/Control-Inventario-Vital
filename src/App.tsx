@@ -36,8 +36,18 @@ import {
   RefreshCw, 
   CheckCircle2, 
   AlertCircle, 
-  Layers
+  X,
+  AlertTriangle,
+  Info
 } from 'lucide-react';
+
+interface SupabaseErrorModalData {
+  title: string;
+  message: string;
+  details?: string;
+  code?: string;
+  hint?: string;
+}
 
 const MainApp: React.FC = () => {
   const { 
@@ -51,9 +61,11 @@ const MainApp: React.FC = () => {
     addProduct, 
     updateProduct, 
     deleteProduct, 
+    addUser,
+    updateUser,
+    deleteUser,
     registerStockEntry, 
     registerStockExit,
-    logAuditEvent 
   } = useInventory();
 
   const [activeTab, setActiveTab] = useState<ActiveTab>('inventory');
@@ -71,6 +83,9 @@ const MainApp: React.FC = () => {
     users: number;
     audit: number;
   }>({ products: 0, entries: 0, exits: 0, users: 0, audit: 0 });
+
+  // Visual error alert state for Supabase operations
+  const [supabaseErrorAlert, setSupabaseErrorAlert] = useState<SupabaseErrorModalData | null>(null);
 
   // Modal States
   const [isProductModalOpen, setIsProductModalOpen] = useState(false);
@@ -117,7 +132,7 @@ const MainApp: React.FC = () => {
         detalles: detalles,
       }]);
     } catch (err) {
-      console.warn('Bitácora en Supabase no disponible o aviso de inserción:', err);
+      console.warn('Bitácora en Supabase aviso de inserción:', err);
     }
   }, [currentUser]);
 
@@ -135,7 +150,9 @@ const MainApp: React.FC = () => {
         .from('inventario')
         .select('*');
 
-      if (!invError && invData && Array.isArray(invData) && invData.length > 0) {
+      if (invError) {
+        console.error("Error cargando inventario:", invError);
+      } else if (invData && Array.isArray(invData) && invData.length > 0) {
         const mappedProducts: Product[] = invData.map((item: any) => ({
           id: String(item.id),
           name: item.nombre || item.name || 'Sin nombre',
@@ -161,7 +178,9 @@ const MainApp: React.FC = () => {
         .select('*')
         .order('created_at', { ascending: false });
 
-      if (!entriesError && entriesData && Array.isArray(entriesData) && entriesData.length > 0) {
+      if (entriesError) {
+        console.error("Error cargando entradas_stock:", entriesError);
+      } else if (entriesData && Array.isArray(entriesData) && entriesData.length > 0) {
         const mappedEntries: StockEntry[] = entriesData.map((e: any) => ({
           id: String(e.id),
           productId: String(e.producto_id || e.productId || ''),
@@ -187,7 +206,9 @@ const MainApp: React.FC = () => {
         .select('*')
         .order('created_at', { ascending: false });
 
-      if (!exitsError && exitsData && Array.isArray(exitsData) && exitsData.length > 0) {
+      if (exitsError) {
+        console.error("Error cargando salidas_stock:", exitsError);
+      } else if (exitsData && Array.isArray(exitsData) && exitsData.length > 0) {
         const mappedExits: StockExit[] = exitsData.map((s: any) => {
           const rev = Number(s.ingreso_total ?? s.totalRevenue ?? (Number(s.cantidad || 0) * Number(s.precio_unitario || 0)));
           const cost = Number(s.costo_unitario ?? 0) * Number(s.cantidad || 0);
@@ -224,7 +245,9 @@ const MainApp: React.FC = () => {
         .from('usuarios')
         .select('*');
 
-      if (!usersError && usersData && Array.isArray(usersData) && usersData.length > 0) {
+      if (usersError) {
+        console.error("Error cargando usuarios:", usersError);
+      } else if (usersData && Array.isArray(usersData) && usersData.length > 0) {
         const mappedUsers: User[] = usersData.map((u: any) => {
           const roleKey = (u.rol || u.role || 'sales_rep') as string;
           const normalizedRole: UserRole = 
@@ -274,7 +297,9 @@ const MainApp: React.FC = () => {
         .order('created_at', { ascending: false })
         .limit(100);
 
-      if (!auditError && auditData && Array.isArray(auditData) && auditData.length > 0) {
+      if (auditError) {
+        console.error("Error cargando bitacora_auditoria:", auditError);
+      } else if (auditData && Array.isArray(auditData) && auditData.length > 0) {
         const mappedAudit: AuditLogEntry[] = auditData.map((b: any) => ({
           id: String(b.id),
           timestamp: b.created_at || b.timestamp || new Date().toISOString(),
@@ -301,7 +326,7 @@ const MainApp: React.FC = () => {
       setLastSyncTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
       setStatusMessage(`Supabase sincronizado: ${counts.products} productos, ${counts.entries} entradas, ${counts.exits} salidas, ${counts.users} usuarios.`);
     } catch (err: any) {
-      console.error('Error sincronizando datos con Supabase:', err);
+      console.error('Error general sincronizando datos con Supabase:', err);
       setSyncStatus('error');
       setStatusMessage(err?.message || 'Error de conexión con Supabase');
     } finally {
@@ -324,24 +349,36 @@ const MainApp: React.FC = () => {
     setStatusMessage(isEdit ? 'Actualizando producto en Supabase...' : 'Guardando nuevo producto en Supabase...');
 
     try {
+      const payloadInventario = {
+        nombre: formData.name,
+        sku: formData.sku,
+        categoria: formData.category,
+        cantidad: Number(formData.currentStock),
+        precio: Number(formData.sellingPrice),
+        costo: Number(formData.costPrice),
+        min_stock: Number(formData.minStock || 5),
+        unidad: formData.unit || 'unidades',
+        proveedor: formData.supplier || '',
+        descripcion: formData.description || '',
+      };
+
       if (isEdit && id) {
         const { error } = await supabase
           .from('inventario')
-          .update({
-            nombre: formData.name,
-            sku: formData.sku,
-            categoria: formData.category,
-            cantidad: Number(formData.currentStock),
-            precio: Number(formData.sellingPrice),
-            costo: Number(formData.costPrice),
-            min_stock: Number(formData.minStock || 5),
-            unidad: formData.unit || 'unidades',
-            proveedor: formData.supplier || '',
-            descripcion: formData.description || '',
-          })
+          .update(payloadInventario)
           .eq('id', id);
 
-        if (error) throw error;
+        if (error) {
+          console.error("Error actualizando inventario:", error);
+          setSupabaseErrorAlert({
+            title: 'Error al actualizar Producto (inventario)',
+            message: error.message || 'Error al actualizar el producto en la base de datos.',
+            details: error.details || JSON.stringify(error),
+            code: error.code,
+            hint: error.hint,
+          });
+          throw error;
+        }
 
         updateProduct(id, formData);
 
@@ -359,21 +396,20 @@ const MainApp: React.FC = () => {
       } else {
         const { data, error } = await supabase
           .from('inventario')
-          .insert([{
-            nombre: formData.name,
-            sku: formData.sku,
-            categoria: formData.category,
-            cantidad: Number(formData.currentStock),
-            precio: Number(formData.sellingPrice),
-            costo: Number(formData.costPrice),
-            min_stock: Number(formData.minStock || 5),
-            unidad: formData.unit || 'unidades',
-            proveedor: formData.supplier || '',
-            descripcion: formData.description || '',
-          }])
+          .insert([payloadInventario])
           .select();
 
-        if (error) throw error;
+        if (error) {
+          console.error("Error insertando en inventario:", error);
+          setSupabaseErrorAlert({
+            title: 'Error al crear Producto (inventario)',
+            message: error.message || 'Error al registrar el producto en la base de datos.',
+            details: error.details || JSON.stringify(error),
+            code: error.code,
+            hint: error.hint,
+          });
+          throw error;
+        }
 
         const insertedItem = data && data[0] ? data[0] : null;
         if (insertedItem) {
@@ -415,40 +451,57 @@ const MainApp: React.FC = () => {
     }
   };
 
-  // 3. ENTRADAS: INSERT EN entradas_stock + UPDATE STOCK EN inventario + REGISTRO EN bitacora_auditoria
+  // 3. ENTRADAS: INSERT EN entradas_stock (con producto_id UUID) + UPDATE STOCK EN inventario + REGISTRO EN bitacora_auditoria
   const handleStockEntryToSupabase = async (entryData: any) => {
     setIsSaving(true);
     setSyncStatus('saving');
     setStatusMessage('Registrando entrada de stock en Supabase...');
 
     try {
+      // Obtener producto seleccionado y su UUID
       const targetProd = products.find(p => p.id === entryData.productId);
-      const totalCost = Number((entryData.quantity * entryData.unitCost).toFixed(2));
+      const productoId = targetProd ? targetProd.id : entryData.productId;
 
-      // 3.1 Insertar en la tabla entradas_stock
-      const { data: insertedEntry, error: entryErr } = await supabase
+      const cantidad = Number(entryData.quantity);
+      const costo_unitario = Number(entryData.unitCost);
+      const costo_total = Number((cantidad * costo_unitario).toFixed(2));
+      const proveedor = entryData.supplier || (targetProd ? targetProd.supplier : '') || 'Proveedor';
+      const notas = entryData.notes || '';
+
+      // Estructura exacta requerida por la tabla entradas_stock
+      const payloadEntrada = {
+        producto_id: productoId,
+        cantidad: cantidad,
+        costo_unitario: costo_unitario,
+        costo_total: costo_total,
+        proveedor: proveedor,
+        notas: notas,
+      };
+
+      // 3.1 Inserción en entradas_stock
+      const { data, error } = await supabase
         .from('entradas_stock')
-        .insert([{
-          producto_id: entryData.productId,
-          cantidad: Number(entryData.quantity),
-          costo_unitario: Number(entryData.unitCost),
-          costo_total: totalCost,
-          proveedor: entryData.supplier || (targetProd ? targetProd.supplier : 'Proveedor'),
-          notas: entryData.notes || '',
-          fecha: entryData.date || new Date().toISOString(),
-        }])
+        .insert([payloadEntrada])
         .select();
 
-      if (entryErr) {
-        console.warn('Aviso insertando en entradas_stock:', entryErr.message);
+      if (error) {
+        console.error("Error entrada:", error);
+        setSupabaseErrorAlert({
+          title: 'Error al registrar Entrada (entradas_stock)',
+          message: error.message || 'Fallo en la inserción de la entrada en Supabase.',
+          details: error.details || JSON.stringify(error),
+          code: error.code,
+          hint: error.hint,
+        });
+        throw error;
       }
 
       // 3.2 Actualizar inventario (cantidad y opcionalmente costo)
       if (targetProd) {
-        const newStock = targetProd.currentStock + Number(entryData.quantity);
+        const newStock = targetProd.currentStock + cantidad;
         const updateFields: any = { cantidad: newStock };
         if (entryData.updateProductCost) {
-          updateFields.costo = Number(entryData.unitCost);
+          updateFields.costo = costo_unitario;
         }
 
         const { error: invErr } = await supabase
@@ -457,7 +510,7 @@ const MainApp: React.FC = () => {
           .eq('id', targetProd.id);
 
         if (invErr) {
-          console.warn('Aviso actualizando stock en inventario:', invErr.message);
+          console.error("Error actualizando stock en inventario:", invErr);
         }
       }
 
@@ -465,68 +518,100 @@ const MainApp: React.FC = () => {
       await logAuditToSupabase({
         modulo: 'Entradas',
         severidad: 'success',
-        descripcion: `Ingreso de stock: +${entryData.quantity} unidades de "${targetProd?.name || 'Producto'}" (${entryData.supplier}). Costo total: $${totalCost.toLocaleString()}.`,
-        recurso_afectado: targetProd?.sku || entryData.productId,
-        detalles: { entryData, totalCost },
+        descripcion: `Ingreso de stock: +${cantidad} unidades de "${targetProd?.name || 'Producto'}" (${proveedor}). Costo total: $${costo_total.toLocaleString()}.`,
+        recurso_afectado: targetProd?.sku || String(productoId),
+        detalles: { payloadEntrada, totalCost: costo_total },
       });
 
       // Actualizar estado local
-      registerStockEntry(entryData);
+      registerStockEntry({
+        ...entryData,
+        productId: productoId,
+        quantity: cantidad,
+        unitCost: costo_unitario,
+        totalCost: costo_total,
+        supplier: proveedor,
+      });
+
       setSyncStatus('synced');
-      setStatusMessage(`Ingreso de +${entryData.quantity} unidades guardado en Supabase.`);
+      setStatusMessage(`Ingreso de +${cantidad} unidades guardado en Supabase.`);
     } catch (err: any) {
-      console.error('Error al registrar entrada en Supabase:', err);
+      console.error("Error entrada:", err);
+      // Mantener consistencia local
       registerStockEntry(entryData);
+      setSyncStatus('error');
+      setStatusMessage(`Error Supabase: ${err?.message || 'Error en entradas_stock'}`);
     } finally {
       setIsSaving(false);
-      setTimeout(() => setStatusMessage(''), 4000);
+      setTimeout(() => setStatusMessage(''), 4500);
     }
   };
 
-  // 4. SALIDAS / VENTAS: INSERT EN salidas_stock + UPDATE STOCK EN inventario + REGISTRO EN bitacora_auditoria
+  // 4. SALIDAS / VENTAS: INSERT EN salidas_stock (con producto_id UUID y cálculos previos) + UPDATE STOCK EN inventario + REGISTRO EN bitacora_auditoria
   const handleStockExitToSupabase = async (exitData: any) => {
     setIsSaving(true);
     setSyncStatus('saving');
     setStatusMessage('Registrando salida/venta en Supabase...');
 
     try {
+      // Obtener producto seleccionado y su UUID
       const targetProd = products.find(p => p.id === exitData.productId);
-      const unitSellingPrice = Number(exitData.unitSellingPrice ?? (targetProd ? targetProd.sellingPrice : 0));
-      const unitCostPrice = targetProd ? targetProd.costPrice : 0;
-      const totalRevenue = Number((exitData.quantity * unitSellingPrice).toFixed(2));
-      const totalCost = Number((exitData.quantity * unitCostPrice).toFixed(2));
-      const profit = Number((totalRevenue - totalCost).toFixed(2));
+      const productoId = targetProd ? targetProd.id : exitData.productId;
 
-      // 4.1 Insertar en la tabla salidas_stock
-      const { error: exitErr } = await supabase
+      const cantidad = Number(exitData.quantity);
+      const precio_unitario = Number(exitData.unitSellingPrice ?? (targetProd ? targetProd.sellingPrice : 0));
+      const costo_unitario = Number(targetProd ? targetProd.costPrice : (exitData.unitCostPrice ?? 0));
+
+      // Cálculos exigidos antes del insert
+      const ingreso_total = Number((cantidad * precio_unitario).toFixed(2));
+      const costo_total_mercantil = Number((cantidad * costo_unitario).toFixed(2));
+      const utilidad_neta = Number((ingreso_total - costo_total_mercantil).toFixed(2));
+
+      const canal_venta = exitData.channel || 'Tienda Web';
+      const orden_ref = exitData.orderRef || '';
+      const notas = exitData.notes || '';
+
+      // Estructura exacta requerida por la tabla salidas_stock
+      const payloadSalida = {
+        producto_id: productoId,
+        cantidad: cantidad,
+        precio_unitario: precio_unitario,
+        costo_unitario: costo_unitario,
+        ingreso_total: ingreso_total,
+        utilidad_neta: utilidad_neta,
+        canal_venta: canal_venta,
+        orden_ref: orden_ref,
+        notas: notas,
+      };
+
+      // 4.1 Inserción en salidas_stock
+      const { data, error } = await supabase
         .from('salidas_stock')
-        .insert([{
-          producto_id: exitData.productId,
-          cantidad: Number(exitData.quantity),
-          precio_unitario: unitSellingPrice,
-          costo_unitario: unitCostPrice,
-          ingreso_total: totalRevenue,
-          utilidad_neta: profit,
-          canal_venta: exitData.channel || 'Tienda Web',
-          orden_ref: exitData.orderRef || '',
-          notas: exitData.notes || '',
-          fecha: exitData.date || new Date().toISOString(),
-        }]);
+        .insert([payloadSalida])
+        .select();
 
-      if (exitErr) {
-        console.warn('Aviso insertando en salidas_stock:', exitErr.message);
+      if (error) {
+        console.error("Error salida:", error);
+        setSupabaseErrorAlert({
+          title: 'Error al registrar Salida (salidas_stock)',
+          message: error.message || 'Fallo en la inserción de la salida en Supabase.',
+          details: error.details || JSON.stringify(error),
+          code: error.code,
+          hint: error.hint,
+        });
+        throw error;
       }
 
       // 4.2 Descontar stock en inventario
       if (targetProd) {
-        const newStock = Math.max(0, targetProd.currentStock - Number(exitData.quantity));
+        const newStock = Math.max(0, targetProd.currentStock - cantidad);
         const { error: invErr } = await supabase
           .from('inventario')
           .update({ cantidad: newStock })
           .eq('id', targetProd.id);
 
         if (invErr) {
-          console.warn('Aviso descontando stock en inventario:', invErr.message);
+          console.error("Error descontando stock en inventario:", invErr);
         }
       }
 
@@ -534,26 +619,160 @@ const MainApp: React.FC = () => {
       await logAuditToSupabase({
         modulo: 'Salidas',
         severidad: 'info',
-        descripcion: `Despacho de stock: -${exitData.quantity} unidades de "${targetProd?.name || 'Producto'}" vía ${exitData.channel || 'Tienda'}. Total: $${totalRevenue.toLocaleString()}.`,
-        recurso_afectado: targetProd?.sku || exitData.productId,
-        detalles: { exitData, totalRevenue, profit },
+        descripcion: `Despacho de stock: -${cantidad} unidades de "${targetProd?.name || 'Producto'}" vía ${canal_venta}. Total: $${ingreso_total.toLocaleString()}.`,
+        recurso_afectado: targetProd?.sku || String(productoId),
+        detalles: { payloadSalida, ingreso_total, utilidad_neta },
       });
 
       // Actualizar estado local
-      const res = registerStockExit(exitData);
+      const res = registerStockExit({
+        ...exitData,
+        productId: productoId,
+        quantity: cantidad,
+        unitSellingPrice: precio_unitario,
+      });
+
       setSyncStatus('synced');
-      setStatusMessage(`Salida de -${exitData.quantity} unidades guardada en Supabase.`);
+      setStatusMessage(`Salida de -${cantidad} unidades guardada en Supabase.`);
       return res;
     } catch (err: any) {
-      console.error('Error al registrar salida en Supabase:', err);
+      console.error("Error salida:", err);
+      setSyncStatus('error');
+      setStatusMessage(`Error Supabase: ${err?.message || 'Error en salidas_stock'}`);
       return registerStockExit(exitData);
     } finally {
       setIsSaving(false);
-      setTimeout(() => setStatusMessage(''), 4000);
+      setTimeout(() => setStatusMessage(''), 4500);
     }
   };
 
-  // 5. ELIMINAR PRODUCTO: DELETE EN inventario + REGISTRO EN bitacora_auditoria
+  // 5. USUARIOS: INSERT & UPDATE EN usuarios (validando email y campos estrictos) + REGISTRO EN bitacora_auditoria
+  const handleSaveUserToSupabase = async (userData: any, isEdit: boolean, id?: string) => {
+    setIsSaving(true);
+    setSyncStatus('saving');
+    setStatusMessage(isEdit ? 'Actualizando usuario en Supabase...' : 'Guardando nuevo usuario en Supabase...');
+
+    try {
+      // Validación estricta de email
+      const emailTrimmed = userData.email ? String(userData.email).trim() : '';
+      if (!emailTrimmed) {
+        const validationMsg = 'El correo electrónico no puede estar vacío.';
+        console.error("Error usuario:", validationMsg);
+        setSupabaseErrorAlert({
+          title: 'Validación de Usuario',
+          message: validationMsg,
+          details: 'El campo "email" es obligatorio en la tabla usuarios.',
+        });
+        throw new Error(validationMsg);
+      }
+
+      // Estructura exacta requerida para la tabla usuarios
+      const payloadUsuario = {
+        nombre: userData.name?.trim() || 'Usuario',
+        email: emailTrimmed,
+        rol: userData.role || 'sales',
+        cargo: userData.roleTitle?.trim() || rolePresets[userData.role as UserRole]?.title || 'Asesor Comercial',
+        estado: 'active',
+        pin_seguridad: userData.pin?.trim() || '1234',
+        permisos: userData.permissions || {},
+      };
+
+      if (isEdit && id) {
+        const { error } = await supabase
+          .from('usuarios')
+          .update(payloadUsuario)
+          .eq('id', id);
+
+        if (error) {
+          console.error("Error usuario:", error);
+          setSupabaseErrorAlert({
+            title: 'Error al actualizar Usuario (usuarios)',
+            message: error.message || 'Fallo en la actualización del usuario.',
+            details: error.details || JSON.stringify(error),
+            code: error.code,
+            hint: error.hint,
+          });
+          throw error;
+        }
+
+        updateUser(id, userData);
+
+        await logAuditToSupabase({
+          modulo: 'Usuarios',
+          severidad: 'info',
+          descripcion: `Usuario "${userData.name}" (${emailTrimmed}) actualizado en el sistema.`,
+          recurso_afectado: emailTrimmed,
+          detalles: { id, updates: payloadUsuario },
+        });
+
+        setSyncStatus('synced');
+        setStatusMessage(`Usuario "${userData.name}" actualizado.`);
+      } else {
+        const { data, error } = await supabase
+          .from('usuarios')
+          .insert([payloadUsuario])
+          .select();
+
+        if (error) {
+          console.error("Error usuario:", error);
+          setSupabaseErrorAlert({
+            title: 'Error al crear Usuario (usuarios)',
+            message: error.message || 'Fallo en la inserción del usuario.',
+            details: error.details || JSON.stringify(error),
+            code: error.code,
+            hint: error.hint,
+          });
+          throw error;
+        }
+
+        const insertedUser = data && data[0] ? data[0] : null;
+        if (insertedUser) {
+          const newUserObj: User = {
+            id: String(insertedUser.id),
+            name: insertedUser.nombre || userData.name,
+            email: insertedUser.email || emailTrimmed,
+            role: insertedUser.rol || userData.role,
+            roleTitle: insertedUser.cargo || userData.roleTitle,
+            avatarColor: userData.avatarColor || 'emerald',
+            initials: (userData.name || 'U').split(' ').map((n: string) => n[0]).slice(0, 2).join('').toUpperCase(),
+            status: insertedUser.estado || 'active',
+            pin: insertedUser.pin_seguridad || userData.pin || '1234',
+            createdAt: insertedUser.created_at || new Date().toISOString(),
+            lastLogin: new Date().toISOString(),
+            permissions: userData.permissions,
+          };
+          setUsers(prev => [newUserObj, ...prev]);
+        } else {
+          addUser(userData);
+        }
+
+        await logAuditToSupabase({
+          modulo: 'Usuarios',
+          severidad: 'success',
+          descripcion: `Nuevo usuario "${userData.name}" (${emailTrimmed}) creado con rol ${userData.role}.`,
+          recurso_afectado: emailTrimmed,
+          detalles: { payloadUsuario },
+        });
+
+        setSyncStatus('synced');
+        setStatusMessage(`Usuario "${userData.name}" creado en Supabase.`);
+      }
+    } catch (err: any) {
+      console.error("Error usuario:", err);
+      setSyncStatus('error');
+      setStatusMessage(`Error Supabase: ${err.message || 'Fallo en usuarios'}`);
+      if (isEdit && id) {
+        updateUser(id, userData);
+      } else {
+        addUser(userData);
+      }
+    } finally {
+      setIsSaving(false);
+      setTimeout(() => setStatusMessage(''), 4500);
+    }
+  };
+
+  // 6. ELIMINAR PRODUCTO: DELETE EN inventario + REGISTRO EN bitacora_auditoria
   const handleDeleteProductFromSupabase = async (id: string, name: string) => {
     setIsSaving(true);
     setSyncStatus('saving');
@@ -567,7 +786,16 @@ const MainApp: React.FC = () => {
         .delete()
         .eq('id', id);
 
-      if (error) throw error;
+      if (error) {
+        console.error("Error eliminando producto:", error);
+        setSupabaseErrorAlert({
+          title: 'Error al eliminar Producto (inventario)',
+          message: error.message,
+          details: error.details,
+          code: error.code,
+        });
+        throw error;
+      }
 
       deleteProduct(id);
 
@@ -757,7 +985,7 @@ const MainApp: React.FC = () => {
         )}
 
         {activeTab === 'users' && (
-          <UsersTab />
+          <UsersTab onSaveUser={handleSaveUserToSupabase} />
         )}
 
       </main>
@@ -817,7 +1045,63 @@ const MainApp: React.FC = () => {
       <UserModal
         isOpen={isUserModalOpen}
         onClose={() => setIsUserModalOpen(false)}
+        onSaveUser={handleSaveUserToSupabase}
       />
+
+      {/* Visual Error Modal for Supabase Failures */}
+      {supabaseErrorAlert && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-stone-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-rose-200 animate-in fade-in zoom-in duration-200">
+            <div className="flex items-start gap-4">
+              <div className="w-12 h-12 rounded-xl bg-rose-100 text-rose-700 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-6 h-6" />
+              </div>
+              <div className="flex-1">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-base font-bold text-stone-900 font-['Outfit',sans-serif]">
+                    {supabaseErrorAlert.title}
+                  </h3>
+                  <button
+                    onClick={() => setSupabaseErrorAlert(null)}
+                    className="text-stone-400 hover:text-stone-600 p-1 rounded-lg hover:bg-stone-100 transition-colors"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+                <p className="text-xs text-rose-700 font-semibold mt-1">
+                  {supabaseErrorAlert.message}
+                </p>
+                {supabaseErrorAlert.details && (
+                  <div className="mt-3 p-3 bg-stone-50 border border-stone-200 rounded-xl text-stone-700 text-xs font-mono break-words max-h-40 overflow-y-auto">
+                    <span className="font-bold block text-stone-500 mb-1">Detalles técnicos:</span>
+                    {supabaseErrorAlert.details}
+                  </div>
+                )}
+                {supabaseErrorAlert.hint && (
+                  <div className="mt-2 text-[11px] text-stone-500 flex items-center gap-1.5">
+                    <Info className="w-3.5 h-3.5 text-sky-600 shrink-0" />
+                    <span>Sugerencia: {supabaseErrorAlert.hint}</span>
+                  </div>
+                )}
+                {supabaseErrorAlert.code && (
+                  <span className="inline-block mt-2 text-[10px] font-mono text-stone-400">
+                    Código de error: {supabaseErrorAlert.code}
+                  </span>
+                )}
+              </div>
+            </div>
+            <div className="mt-6 flex justify-end">
+              <button
+                onClick={() => setSupabaseErrorAlert(null)}
+                className="px-5 py-2 text-xs font-bold text-white bg-stone-900 hover:bg-stone-800 rounded-xl transition-colors shadow-xs cursor-pointer"
+              >
+                Entendido
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };
