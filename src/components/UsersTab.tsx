@@ -24,7 +24,11 @@ import { rolePresets } from '../data/initialData';
 import { UserModal } from './modals/UserModal';
 import { formatDate } from '../utils/formatters';
 
-export const UsersTab: React.FC = () => {
+interface UsersTabProps {
+  onSaveUser?: (userData: any, isEdit: boolean, id?: string) => Promise<void> | void;
+}
+
+export const UsersTab: React.FC<UsersTabProps> = ({ onSaveUser }) => {
   const { 
     users, 
     currentUser, 
@@ -356,6 +360,7 @@ export const UsersTab: React.FC = () => {
         isOpen={isUserModalOpen}
         onClose={() => setIsUserModalOpen(false)}
         userToEdit={editingUser}
+        onSaveUser={onSaveUser}
       />
 
       {/* Delete User Confirmation */}
