@@ -146,6 +146,9 @@ const MainApp: React.FC = () => {
 
     try {
       // 1.1 Cargar inventario
+      let mappedProducts: Product[] = [];
+      const prodMap = new Map<string, Product>();
+
       const { data: invData, error: invError } = await supabase
         .from('inventario')
         .select('*');
@@ -153,21 +156,25 @@ const MainApp: React.FC = () => {
       if (invError) {
         console.error("Error cargando inventario:", invError);
       } else if (invData && Array.isArray(invData) && invData.length > 0) {
-        const mappedProducts: Product[] = invData.map((item: any) => ({
-          id: String(item.id),
-          name: item.nombre || item.name || 'Sin nombre',
-          sku: item.sku || `SKU-${item.id}`,
-          category: item.categoria || item.category || 'General',
-          currentStock: Number(item.cantidad ?? item.currentStock ?? 0),
-          sellingPrice: Number(item.precio ?? item.sellingPrice ?? 0),
-          costPrice: Number(item.costo ?? item.costPrice ?? (Number(item.precio || 0) * 0.6)),
-          minStock: Number(item.min_stock ?? item.minStock ?? 5),
-          unit: item.unidad || item.unit || 'unidades',
-          supplier: item.proveedor || item.supplier || 'Proveedor',
-          description: item.descripcion || item.description || '',
-          createdAt: item.created_at || item.createdAt || new Date().toISOString(),
-          updatedAt: item.updated_at || item.updatedAt || new Date().toISOString(),
-        }));
+        mappedProducts = invData.map((item: any) => {
+          const p: Product = {
+            id: String(item.id),
+            name: item.nombre || item.name || 'Sin nombre',
+            sku: item.sku || `SKU-${item.id}`,
+            category: item.categoria || item.category || 'General',
+            currentStock: Number(item.cantidad ?? item.currentStock ?? 0),
+            sellingPrice: Number(item.precio ?? item.sellingPrice ?? 0),
+            costPrice: Number(item.costo ?? item.costPrice ?? (Number(item.precio || 0) * 0.6)),
+            minStock: Number(item.min_stock ?? item.minStock ?? 5),
+            unit: item.unidad || item.unit || 'unidades',
+            supplier: item.proveedor || item.supplier || 'Proveedor',
+            description: item.descripcion || item.description || '',
+            createdAt: item.created_at || item.createdAt || new Date().toISOString(),
+            updatedAt: item.updated_at || item.updatedAt || new Date().toISOString(),
+          };
+          prodMap.set(p.id, p);
+          return p;
+        });
         setProducts(mappedProducts);
         counts.products = mappedProducts.length;
       }
@@ -181,21 +188,24 @@ const MainApp: React.FC = () => {
       if (entriesError) {
         console.error("Error cargando entradas_stock:", entriesError);
       } else if (entriesData && Array.isArray(entriesData) && entriesData.length > 0) {
-        const mappedEntries: StockEntry[] = entriesData.map((e: any) => ({
-          id: String(e.id),
-          productId: String(e.producto_id || e.productId || ''),
-          productName: e.producto_nombre || e.productName || 'Producto',
-          productSku: e.producto_sku || e.productSku || '',
-          quantity: Number(e.cantidad ?? e.quantity ?? 0),
-          unitCost: Number(e.costo_unitario ?? e.unitCost ?? 0),
-          totalCost: Number(e.costo_total ?? e.totalCost ?? (Number(e.cantidad || 0) * Number(e.costo_unitario || 0))),
-          supplier: e.proveedor || e.supplier || 'Proveedor',
-          invoiceRef: e.invoice_ref || e.invoiceRef || '',
-          date: e.fecha || e.date || e.created_at || new Date().toISOString(),
-          notes: e.notas || e.notes || '',
-          updateProductCost: Boolean(e.update_product_cost ?? e.updateProductCost ?? false),
-          registeredBy: e.registrado_por || e.registeredBy || 'Admin',
-        }));
+        const mappedEntries: StockEntry[] = entriesData.map((e: any) => {
+          const matchedProd = prodMap.get(String(e.producto_id || e.productId || ''));
+          return {
+            id: String(e.id),
+            productId: String(e.producto_id || e.productId || ''),
+            productName: e.producto_nombre || e.productName || matchedProd?.name || 'Producto',
+            productSku: e.producto_sku || e.productSku || matchedProd?.sku || '',
+            quantity: Number(e.cantidad ?? e.quantity ?? 0),
+            unitCost: Number(e.costo_unitario ?? e.unitCost ?? 0),
+            totalCost: Number(e.costo_total ?? e.totalCost ?? (Number(e.cantidad || 0) * Number(e.costo_unitario || 0))),
+            supplier: e.proveedor || e.supplier || matchedProd?.supplier || 'Proveedor',
+            invoiceRef: e.invoice_ref || e.invoiceRef || '',
+            date: e.fecha || e.date || e.created_at || new Date().toISOString(),
+            notes: e.notas || e.notes || '',
+            updateProductCost: Boolean(e.update_product_cost ?? e.updateProductCost ?? false),
+            registeredBy: e.registrado_por || e.registeredBy || 'Admin',
+          };
+        });
         setEntries(mappedEntries);
         counts.entries = mappedEntries.length;
       }
@@ -214,12 +224,15 @@ const MainApp: React.FC = () => {
           const cost = Number(s.costo_unitario ?? 0) * Number(s.cantidad || 0);
           const profit = Number(s.utilidad_neta ?? s.profit ?? (rev - cost));
           const margin = rev > 0 ? Number(((profit / rev) * 100).toFixed(1)) : 0;
+          const matchedProd = prodMap.get(String(s.producto_id || s.productId || ''));
+
+          const clientName = (s.cliente || s.customerName || s.customer_name || s.nombre_cliente || s.cliente_nombre || '').trim();
 
           return {
             id: String(s.id),
             productId: String(s.producto_id || s.productId || ''),
-            productName: s.producto_nombre || s.productName || 'Producto',
-            productSku: s.producto_sku || s.productSku || '',
+            productName: s.producto_nombre || s.productName || matchedProd?.name || 'Producto',
+            productSku: s.producto_sku || s.productSku || matchedProd?.sku || '',
             quantity: Number(s.cantidad ?? s.quantity ?? 0),
             unitSellingPrice: Number(s.precio_unitario ?? s.unitSellingPrice ?? 0),
             unitCostPrice: Number(s.costo_unitario ?? s.unitCostPrice ?? 0),
@@ -229,7 +242,7 @@ const MainApp: React.FC = () => {
             profitMarginPercent: margin,
             type: s.tipo || s.type || 'sale',
             channel: s.canal_venta || s.channel || 'Tienda Web',
-            customerName: s.cliente || s.customerName || '',
+            customerName: clientName || 'Consumidor Final',
             orderRef: s.orden_ref || s.orderRef || '',
             date: s.fecha || s.date || s.created_at || new Date().toISOString(),
             notes: s.notas || s.notes || '',
@@ -568,10 +581,11 @@ const MainApp: React.FC = () => {
       const utilidad_neta = Number((ingreso_total - costo_total_mercantil).toFixed(2));
 
       const canal_venta = exitData.channel || 'Tienda Web';
+      const cliente = (exitData.customerName || exitData.cliente || '').trim() || 'Consumidor Final';
       const orden_ref = exitData.orderRef || '';
       const notas = exitData.notes || '';
 
-      // Estructura exacta requerida por la tabla salidas_stock
+      // Estructura exacta requerida por la tabla salidas_stock (incluyendo cliente)
       const payloadSalida = {
         producto_id: productoId,
         cantidad: cantidad,
@@ -580,6 +594,7 @@ const MainApp: React.FC = () => {
         ingreso_total: ingreso_total,
         utilidad_neta: utilidad_neta,
         canal_venta: canal_venta,
+        cliente: cliente,
         orden_ref: orden_ref,
         notas: notas,
       };
@@ -619,9 +634,9 @@ const MainApp: React.FC = () => {
       await logAuditToSupabase({
         modulo: 'Salidas',
         severidad: 'info',
-        descripcion: `Despacho de stock: -${cantidad} unidades de "${targetProd?.name || 'Producto'}" vía ${canal_venta}. Total: $${ingreso_total.toLocaleString()}.`,
+        descripcion: `Despacho de stock: -${cantidad} unidades de "${targetProd?.name || 'Producto'}" para "${cliente}" vía ${canal_venta}. Total: $${ingreso_total.toLocaleString()}.`,
         recurso_afectado: targetProd?.sku || String(productoId),
-        detalles: { payloadSalida, ingreso_total, utilidad_neta },
+        detalles: { payloadSalida, cliente, ingreso_total, utilidad_neta },
       });
 
       // Actualizar estado local
@@ -630,10 +645,11 @@ const MainApp: React.FC = () => {
         productId: productoId,
         quantity: cantidad,
         unitSellingPrice: precio_unitario,
+        customerName: cliente,
       });
 
       setSyncStatus('synced');
-      setStatusMessage(`Salida de -${cantidad} unidades guardada en Supabase.`);
+      setStatusMessage(`Salida de -${cantidad} unidades (${cliente}) guardada en Supabase.`);
       return res;
     } catch (err: any) {
       console.error("Error salida:", err);
