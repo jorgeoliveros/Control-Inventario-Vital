@@ -1,8 +1,0 @@
-{
-  "name": "VITAL - Control de Inventarios",
-  "description": "Sistema de gestión de inventario para la tienda virtual VITAL.",
-  "requestFramePermissions": [],
-  "majorCapabilities": [
-    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
-  ]
-}
