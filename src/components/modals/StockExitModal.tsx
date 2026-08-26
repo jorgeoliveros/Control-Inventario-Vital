@@ -83,13 +83,15 @@ export const StockExitModal: React.FC<StockExitModalProps> = ({
       return;
     }
 
+    const finalCustomer = customerName.trim() || 'Consumidor Final';
     const payload = {
       productId,
       quantity,
       unitSellingPrice,
       type,
       channel,
-      customerName: customerName.trim(),
+      customerName: finalCustomer,
+      cliente: finalCustomer,
       orderRef: orderRef.trim(),
       date: new Date(date).toISOString(),
       notes: notes.trim(),
@@ -260,16 +262,23 @@ export const StockExitModal: React.FC<StockExitModalProps> = ({
           {/* Customer & Order Ref */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-semibold text-stone-700 mb-1">
-                Nombre del Cliente (Opcional)
+              <label className="block text-xs font-semibold text-stone-700 mb-1 flex items-center justify-between">
+                <span>Nombre del Cliente</span>
+                <span className="text-[10px] text-stone-400 font-normal">Opcional</span>
               </label>
-              <input
-                type="text"
-                placeholder="ej. Valeria Montero"
-                value={customerName}
-                onChange={(e) => setCustomerName(e.target.value)}
-                className="w-full px-3 py-2 text-xs sm:text-sm bg-stone-50 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white text-stone-900"
-              />
+              <div className="relative">
+                <User className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
+                <input
+                  type="text"
+                  placeholder="ej. Valeria Montero / Empresa ABC"
+                  value={customerName}
+                  onChange={(e) => setCustomerName(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2 text-xs sm:text-sm bg-stone-50 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white text-stone-900 font-medium"
+                />
+              </div>
+              <span className="text-[10px] text-stone-400 mt-0.5 block">
+                Por defecto: &quot;Consumidor Final&quot; si se deja en blanco
+              </span>
             </div>
 
             <div>
