@@ -8,12 +8,14 @@ interface UserModalProps {
   isOpen: boolean;
   onClose: () => void;
   userToEdit?: User | null;
+  onSaveUser?: (userData: any, isEdit: boolean, id?: string) => Promise<void> | void;
 }
 
 export const UserModal: React.FC<UserModalProps> = ({
   isOpen,
   onClose,
   userToEdit,
+  onSaveUser,
 }) => {
   const { addUser, updateUser, users } = useInventory();
 
@@ -86,32 +88,29 @@ export const UserModal: React.FC<UserModalProps> = ({
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!validate()) return;
 
-    if (userToEdit) {
-      updateUser(userToEdit.id, {
-        name: name.trim(),
-        email: email.trim(),
-        role,
-        roleTitle: roleTitle.trim() || rolePresets[role].title,
-        avatarColor,
-        status,
-        pin: pin.trim() || '1234',
-        permissions,
-      });
+    const userData = {
+      name: name.trim(),
+      email: email.trim(),
+      role,
+      roleTitle: roleTitle.trim() || rolePresets[role].title,
+      avatarColor,
+      status,
+      pin: pin.trim() || '1234',
+      permissions,
+    };
+
+    if (onSaveUser) {
+      await onSaveUser(userData, !!userToEdit, userToEdit?.id);
     } else {
-      addUser({
-        name: name.trim(),
-        email: email.trim(),
-        role,
-        roleTitle: roleTitle.trim() || rolePresets[role].title,
-        avatarColor,
-        status,
-        pin: pin.trim() || '1234',
-        permissions,
-      });
+      if (userToEdit) {
+        updateUser(userToEdit.id, userData);
+      } else {
+        addUser(userData);
+      }
     }
 
     onClose();
