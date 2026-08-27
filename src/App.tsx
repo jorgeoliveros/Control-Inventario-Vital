@@ -842,7 +842,24 @@ const MainApp: React.FC = () => {
         }
       }
 
-      // 4.2 Registrar en bitacora_auditoria
+      // 4.2 Actualizar inventario en Supabase (descontar matemáticamente el stock del producto)
+      if (targetProd) {
+        const newStock = Math.max(0, Number(targetProd.currentStock) - cantidad);
+        const { error: invErr } = await supabase
+          .from('inventario')
+          .update({ cantidad: newStock })
+          .eq('id', targetProd.id);
+
+        if (invErr) {
+          console.warn("Reintentando actualización de stock en inventario por SKU o columna alternativa:", invErr);
+          if (targetProd.sku) {
+            await supabase.from('inventario').update({ cantidad: newStock }).eq('sku', targetProd.sku);
+          }
+          await supabase.from('inventario').update({ stock: newStock }).eq('id', targetProd.id);
+        }
+      }
+
+      // 4.3 Registrar en bitacora_auditoria
       await logAuditToSupabase({
         modulo: 'Salidas',
         severidad: 'info',
@@ -851,7 +868,34 @@ const MainApp: React.FC = () => {
         detalles: { payloadSalida, cliente, ingreso_total, utilidad_neta, fecha: selectedDate },
       });
 
-      // 4.3 Re-sincronizar el inventario y transacciones desde Supabase (el Trigger en BD descuenta el stock automáticamente)
+      // 4.4 Actualizar el contexto local
+      registerStockExit({
+        productId: productoId,
+        quantity: cantidad,
+        unitSellingPrice: precio_unitario,
+        type: (exitData.type as any) || 'sale',
+        channel: canal_venta,
+        customerName: cliente,
+        orderRef: orden_ref,
+        date: selectedDate,
+        notes: rawNotes,
+      });
+
+      // 4.5 Actualizar reactivamente el array de productos en el estado
+      setProducts(prev =>
+        prev.map(p => {
+          if (String(p.id) === String(productoId) || (targetProd && p.sku === targetProd.sku)) {
+            return {
+              ...p,
+              currentStock: Math.max(0, Number(p.currentStock) - cantidad),
+              updatedAt: new Date().toISOString(),
+            };
+          }
+          return p;
+        })
+      );
+
+      // 4.6 Sincronizar catálogo completo
       await fetchAllDataFromSupabase();
 
       setSyncStatus('synced');
