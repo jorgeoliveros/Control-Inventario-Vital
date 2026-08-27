@@ -31,7 +31,7 @@ export const StockExitModal: React.FC<StockExitModalProps> = ({
   const [notes, setNotes] = useState<string>('');
   const [error, setError] = useState<string>('');
 
-  const currentProduct = products.find(p => p.id === productId);
+  const currentProduct = products.find(p => String(p.id) === String(productId) || p.sku === String(productId));
 
   useEffect(() => {
     if (selectedProduct) {

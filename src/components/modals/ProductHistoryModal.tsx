@@ -21,12 +21,12 @@ export const ProductHistoryModal: React.FC<ProductHistoryModalProps> = ({
 
   // Filter entries and exits for this product
   const productEntries = useMemo(() => {
-    return entries.filter(e => e.productId === product.id);
-  }, [entries, product.id]);
+    return entries.filter(e => String(e.productId) === String(product.id) || (product.sku && e.productSku === product.sku));
+  }, [entries, product.id, product.sku]);
 
   const productExits = useMemo(() => {
-    return exits.filter(e => e.productId === product.id);
-  }, [exits, product.id]);
+    return exits.filter(e => String(e.productId) === String(product.id) || (product.sku && e.productSku === product.sku));
+  }, [exits, product.id, product.sku]);
 
   // Merge movements in reverse chronological order
   const movements = useMemo(() => {
