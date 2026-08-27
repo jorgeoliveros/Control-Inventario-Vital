@@ -29,7 +29,7 @@ import {
   AuditModule
 } from './types';
 import { rolePresets } from './data/initialData';
-import { supabase } from './supabaseClient';
+import { supabase, isSupabaseConfigured } from './supabaseClient';
 import { 
   X,
   AlertTriangle,
@@ -115,6 +115,9 @@ const MainApp: React.FC = () => {
     detalles?: Record<string, any>;
   }) => {
     try {
+      if (!isSupabaseConfigured) {
+        return;
+      }
       const mappedSeverity = severidad === 'danger' ? 'critical' : severidad;
       await supabase.from('bitacora_auditoria').insert([{
         usuario_id: currentUser?.id || null,
@@ -133,6 +136,12 @@ const MainApp: React.FC = () => {
 
   // 1. CARGA INICIAL COMPLETA DESDE SUPABASE (inventario, entradas_stock, salidas_stock, usuarios, bitacora_auditoria)
   const fetchAllDataFromSupabase = useCallback(async () => {
+    if (!isSupabaseConfigured) {
+      setIsLoading(false);
+      setSyncStatus('idle');
+      return;
+    }
+
     setIsLoading(true);
     setSyncStatus('loading');
     setStatusMessage('Sincronizando tablas desde Supabase...');
@@ -177,8 +186,7 @@ const MainApp: React.FC = () => {
       // 1.2 Cargar entradas_stock
       const { data: entriesData, error: entriesError } = await supabase
         .from('entradas_stock')
-        .select('*')
-        .order('created_at', { ascending: false });
+        .select('*');
 
       if (entriesError) {
         console.error("Error cargando entradas_stock:", entriesError);
@@ -201,6 +209,7 @@ const MainApp: React.FC = () => {
             registeredBy: e.registrado_por || e.registeredBy || 'Admin',
           };
         });
+        mappedEntries.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
         setEntries(mappedEntries);
         counts.entries = mappedEntries.length;
       }
@@ -211,15 +220,13 @@ const MainApp: React.FC = () => {
       // Intentar consulta con relación a inventario
       const { data: exitsDataWithInv, error: exitsErrorWithInv } = await supabase
         .from('salidas_stock')
-        .select('*, inventario(nombre, sku)')
-        .order('created_at', { ascending: false });
+        .select('*, inventario(nombre, sku)');
 
       if (exitsErrorWithInv) {
         console.warn("Consulta con relación a inventario falló, reintentando select(*):", exitsErrorWithInv);
         const { data: exitsDataSimple, error: exitsErrorSimple } = await supabase
           .from('salidas_stock')
-          .select('*')
-          .order('created_at', { ascending: false });
+          .select('*');
         if (exitsErrorSimple) {
           console.error("Error cargando salidas_stock:", exitsErrorSimple);
         } else {
@@ -266,6 +273,7 @@ const MainApp: React.FC = () => {
             registeredBy: s.registrado_por || s.registeredBy || 'Admin',
           };
         });
+        mappedExits.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
         setExits(mappedExits);
         counts.exits = mappedExits.length;
       }
@@ -321,18 +329,21 @@ const MainApp: React.FC = () => {
       }
 
       // 1.5 Cargar bitacora_auditoria
+      let rawAuditData: any[] | null = null;
       const { data: auditData, error: auditError } = await supabase
         .from('bitacora_auditoria')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(100);
+        .select('*');
 
       if (auditError) {
         console.error("Error cargando bitacora_auditoria:", auditError);
-      } else if (auditData && Array.isArray(auditData) && auditData.length > 0) {
-        const mappedAudit: AuditLogEntry[] = auditData.map((b: any) => ({
+      } else if (auditData && Array.isArray(auditData)) {
+        rawAuditData = auditData;
+      }
+
+      if (rawAuditData && rawAuditData.length > 0) {
+        const mappedAudit: AuditLogEntry[] = rawAuditData.map((b: any) => ({
           id: String(b.id),
-          timestamp: b.created_at || b.timestamp || new Date().toISOString(),
+          timestamp: b.created_at || b.fecha || b.timestamp || new Date().toISOString(),
           userId: String(b.usuario_id || b.userId || ''),
           userName: b.usuario_nombre || b.userName || 'Sistema',
           userEmail: b.usuario_email || b.userEmail || '',
@@ -347,7 +358,8 @@ const MainApp: React.FC = () => {
           description: b.descripcion || b.description || '',
           details: b.detalles || b.details || {},
         }));
-        setAuditLogs(mappedAudit);
+        mappedAudit.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+        setAuditLogs(mappedAudit.slice(0, 100));
         counts.audit = mappedAudit.length;
       }
 
