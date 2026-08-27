@@ -69,7 +69,15 @@ export const getStockStatusLabel = (status: StockStatus): { text: string; bg: st
 
 export const formatDate = (dateStr: string): string => {
   try {
-    const date = new Date(dateStr);
+    if (!dateStr) return '—';
+    let normalized = dateStr;
+    if (typeof dateStr === 'string' && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(dateStr)) {
+      normalized = dateStr.replace(' ', 'T');
+      if (!normalized.endsWith('Z') && !normalized.includes('+') && !normalized.includes('-')) {
+        normalized += 'Z';
+      }
+    }
+    const date = new Date(normalized);
     if (isNaN(date.getTime())) return dateStr;
     return new Intl.DateTimeFormat('es-ES', {
       day: '2-digit',
@@ -85,7 +93,15 @@ export const formatDate = (dateStr: string): string => {
 
 export const formatDateShort = (dateStr: string): string => {
   try {
-    const date = new Date(dateStr);
+    if (!dateStr) return '—';
+    let normalized = dateStr;
+    if (typeof dateStr === 'string' && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(dateStr)) {
+      normalized = dateStr.replace(' ', 'T');
+      if (!normalized.endsWith('Z') && !normalized.includes('+') && !normalized.includes('-')) {
+        normalized += 'Z';
+      }
+    }
+    const date = new Date(normalized);
     if (isNaN(date.getTime())) return dateStr;
     return new Intl.DateTimeFormat('es-ES', {
       day: '2-digit',
