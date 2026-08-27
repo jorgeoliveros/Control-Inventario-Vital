@@ -28,6 +28,7 @@ import {
   AuditSeverity,
   AuditModule
 } from './types';
+import { formatDate } from './utils/formatters';
 import { rolePresets } from './data/initialData';
 import { supabase, isSupabaseConfigured } from './supabaseClient';
 import { 
@@ -194,6 +195,19 @@ const MainApp: React.FC = () => {
       } else if (entriesData && Array.isArray(entriesData)) {
         const mappedEntries: StockEntry[] = entriesData.map((e: any) => {
           const matchedProd = prodMap.get(String(e.producto_id || e.productId || ''));
+          
+          // Extraer fecha histórica real con máxima prioridad
+          let rawDate = e.fecha || e.fecha_entrada || e.fecha_ingreso || e.fecha_registro || e.fecha_movimiento || e.date;
+          let rawNotes = (e.notas || e.notes || '').toString();
+          
+          const noteMatch = rawNotes.match(/\[FECHA(?:_REGISTRO)?:(.*?)\]/);
+          if (noteMatch && noteMatch[1]) {
+            rawDate = noteMatch[1].trim();
+            rawNotes = rawNotes.replace(/\[FECHA(?:_REGISTRO)?:.*?\]/g, '').trim();
+          }
+
+          const realDate = rawDate || e.created_at || new Date().toISOString();
+
           return {
             id: String(e.id),
             productId: String(e.producto_id || e.productId || ''),
@@ -203,9 +217,9 @@ const MainApp: React.FC = () => {
             unitCost: Number(e.costo_unitario ?? e.unitCost ?? 0),
             totalCost: Number(e.costo_total ?? e.totalCost ?? (Number(e.cantidad || 0) * Number(e.costo_unitario || 0))),
             supplier: e.proveedor || e.supplier || matchedProd?.supplier || 'Proveedor',
-            invoiceRef: e.invoice_ref || e.invoiceRef || '',
-            date: e.fecha || e.date || e.created_at || new Date().toISOString(),
-            notes: e.notas || e.notes || '',
+            invoiceRef: e.invoice_ref || e.invoiceRef || e.factura_ref || e.comprobante || '',
+            date: realDate,
+            notes: rawNotes,
             updateProductCost: Boolean(e.update_product_cost ?? e.updateProductCost ?? false),
             registeredBy: e.registrado_por || e.registeredBy || 'Admin',
           };
@@ -253,6 +267,18 @@ const MainApp: React.FC = () => {
           const productSku = invRel?.sku || s.producto_sku || matchedProd?.sku || 'S/N';
           const clientName = (s.cliente || s.customerName || s.customer_name || s.nombre_cliente || s.cliente_nombre || '').trim();
 
+          // Extraer fecha histórica real de salida con máxima prioridad
+          let rawDate = s.fecha || s.fecha_salida || s.fecha_venta || s.fecha_registro || s.fecha_movimiento || s.date;
+          let rawNotes = (s.notas || s.notes || '').toString();
+
+          const noteMatch = rawNotes.match(/\[FECHA(?:_REGISTRO)?:(.*?)\]/);
+          if (noteMatch && noteMatch[1]) {
+            rawDate = noteMatch[1].trim();
+            rawNotes = rawNotes.replace(/\[FECHA(?:_REGISTRO)?:.*?\]/g, '').trim();
+          }
+
+          const realDate = rawDate || s.created_at || new Date().toISOString();
+
           return {
             id: String(s.id),
             productId: String(s.producto_id || s.productId || ''),
@@ -269,8 +295,8 @@ const MainApp: React.FC = () => {
             channel: s.canal_venta || s.channel || 'Tienda Web',
             customerName: clientName || 'Consumidor Final',
             orderRef: s.orden_ref || s.orderRef || '',
-            date: s.fecha || s.date || s.created_at || new Date().toISOString(),
-            notes: s.notas || s.notes || '',
+            date: realDate,
+            notes: rawNotes,
             registeredBy: s.registrado_por || s.registeredBy || 'Admin',
           };
         });
@@ -528,34 +554,86 @@ const MainApp: React.FC = () => {
       const costo_unitario = Number(entryData.unitCost);
       const costo_total = Number((cantidad * costo_unitario).toFixed(2));
       const proveedor = entryData.supplier || (targetProd ? targetProd.supplier : '') || 'Proveedor';
-      const notas = entryData.notes || '';
+      const invoiceRef = entryData.invoiceRef || '';
+      const selectedDate = entryData.date ? new Date(entryData.date).toISOString() : new Date().toISOString();
+      const rawUserNotes = (entryData.notes || '').trim();
+      const notasWithTag = rawUserNotes ? `${rawUserNotes} [FECHA:${selectedDate}]` : `[FECHA:${selectedDate}]`;
 
-      // Estructura exacta requerida por la tabla entradas_stock
-      const payloadEntrada = {
+      // Estructura para la tabla entradas_stock con fecha real seleccionada
+      const payloadEntrada: any = {
         producto_id: productoId,
         cantidad: cantidad,
         costo_unitario: costo_unitario,
         costo_total: costo_total,
         proveedor: proveedor,
-        notas: notas,
+        invoice_ref: invoiceRef,
+        fecha: selectedDate,
+        fecha_entrada: selectedDate,
+        fecha_ingreso: selectedDate,
+        created_at: selectedDate,
+        notas: notasWithTag,
       };
 
-      // 3.1 Inserción en entradas_stock
-      const { data, error } = await supabase
+      // 3.1 Inserción en entradas_stock (con fallback resiliente si alguna columna no existe)
+      let { data, error } = await supabase
         .from('entradas_stock')
         .insert([payloadEntrada])
         .select();
 
       if (error) {
-        console.error("Error entrada:", error);
-        setSupabaseErrorAlert({
-          title: 'Error al registrar Entrada (entradas_stock)',
-          message: error.message || 'Fallo en la inserción de la entrada en Supabase.',
-          details: error.details || JSON.stringify(error),
-          code: error.code,
-          hint: error.hint,
-        });
-        throw error;
+        console.warn("Inserción con payload completo falló en entradas_stock, reintentando con variantes:", error);
+        // Reintento sin invoice_ref y con fecha
+        const fallback1 = {
+          producto_id: productoId,
+          cantidad: cantidad,
+          costo_unitario: costo_unitario,
+          costo_total: costo_total,
+          proveedor: proveedor,
+          fecha: selectedDate,
+          notas: notasWithTag,
+        };
+        const res1 = await supabase.from('entradas_stock').insert([fallback1]).select();
+        if (res1.error) {
+          // Reintento con created_at
+          const fallback2 = {
+            producto_id: productoId,
+            cantidad: cantidad,
+            costo_unitario: costo_unitario,
+            costo_total: costo_total,
+            proveedor: proveedor,
+            created_at: selectedDate,
+            notas: notasWithTag,
+          };
+          const res2 = await supabase.from('entradas_stock').insert([fallback2]).select();
+          if (res2.error) {
+            // Reintento básico con nota etiquetada
+            const fallback3 = {
+              producto_id: productoId,
+              cantidad: cantidad,
+              costo_unitario: costo_unitario,
+              costo_total: costo_total,
+              proveedor: proveedor,
+              notas: notasWithTag,
+            };
+            const res3 = await supabase.from('entradas_stock').insert([fallback3]).select();
+            if (res3.error) {
+              console.error("Error definitivo entrada:", res3.error);
+              setSupabaseErrorAlert({
+                title: 'Error al registrar Entrada (entradas_stock)',
+                message: res3.error.message || 'Fallo en la inserción de la entrada en Supabase.',
+                details: res3.error.details || JSON.stringify(res3.error),
+                code: res3.error.code,
+                hint: res3.error.hint,
+              });
+              throw res3.error;
+            }
+            data = res3.data;
+          } else {
+            data = res2.data;
+          }
+        } else {
+          data = res1.data;
+        }
       }
 
       // 3.2 Actualizar inventario (cantidad y opcionalmente costo)
@@ -585,9 +663,9 @@ const MainApp: React.FC = () => {
       await logAuditToSupabase({
         modulo: 'Entradas',
         severidad: 'success',
-        descripcion: `Ingreso de stock: +${cantidad} unidades de "${targetProd?.name || 'Producto'}" (${proveedor}). Costo total: $${costo_total.toLocaleString()}.`,
+        descripcion: `Ingreso de stock: +${cantidad} unidades de "${targetProd?.name || 'Producto'}" (${proveedor}). Fecha: ${formatDate(selectedDate)}. Costo total: $${costo_total.toLocaleString()}.`,
         recurso_afectado: targetProd?.sku || String(productoId),
-        detalles: { payloadEntrada, totalCost: costo_total },
+        detalles: { payloadEntrada, totalCost: costo_total, fecha: selectedDate },
       });
 
       // Actualizar estado local en contexto
@@ -598,6 +676,8 @@ const MainApp: React.FC = () => {
         unitCost: costo_unitario,
         totalCost: costo_total,
         supplier: proveedor,
+        date: selectedDate,
+        invoiceRef: invoiceRef,
       });
 
       // Garantizar actualización reactiva inmediata en el estado de productos
@@ -617,7 +697,7 @@ const MainApp: React.FC = () => {
       );
 
       setSyncStatus('synced');
-      setStatusMessage(`Ingreso de +${cantidad} unidades guardado en Supabase.`);
+      setStatusMessage(`Ingreso de +${cantidad} unidades (${formatDate(selectedDate)}) guardado en Supabase.`);
     } catch (err: any) {
       console.error("Error entrada:", err);
       // Mantener consistencia local
@@ -642,7 +722,7 @@ const MainApp: React.FC = () => {
     }
   };
 
-  // 4. SALIDAS / VENTAS: INSERT EN salidas_stock (con producto_id UUID y cálculos previos) + REGISTRO EN bitacora_auditoria + RE-FETCH DESDE SUPABASE
+  // 4. SALIDAS / VENTAS: INSERT EN salidas_stock (con producto_id UUID, fecha real y cálculos previos) + REGISTRO EN bitacora_auditoria + RE-FETCH DESDE SUPABASE
   const handleStockExitToSupabase = async (exitData: any) => {
     setIsSaving(true);
     setSyncStatus('saving');
@@ -665,10 +745,12 @@ const MainApp: React.FC = () => {
       const canal_venta = exitData.channel || 'Tienda Web';
       const cliente = (exitData.customerName || exitData.cliente || '').trim() || 'Consumidor Final';
       const orden_ref = exitData.orderRef || '';
-      const notas = exitData.notes || '';
+      const rawNotes = (exitData.notes || '').trim();
+      const selectedDate = exitData.date ? new Date(exitData.date).toISOString() : new Date().toISOString();
+      const notasWithTag = rawNotes ? `${rawNotes} [FECHA:${selectedDate}]` : `[FECHA:${selectedDate}]`;
 
-      // Estructura exacta requerida por la tabla salidas_stock (incluyendo cliente)
-      const payloadSalida = {
+      // Estructura requerida por la tabla salidas_stock con fecha real
+      const payloadSalida: any = {
         producto_id: productoId,
         cantidad: cantidad,
         precio_unitario: precio_unitario,
@@ -678,41 +760,102 @@ const MainApp: React.FC = () => {
         canal_venta: canal_venta,
         cliente: cliente,
         orden_ref: orden_ref,
-        notas: notas,
+        fecha: selectedDate,
+        fecha_salida: selectedDate,
+        fecha_venta: selectedDate,
+        fecha_registro: selectedDate,
+        created_at: selectedDate,
+        notas: notasWithTag,
       };
 
-      // 4.1 Inserción en salidas_stock
-      const { data, error } = await supabase
+      // 4.1 Inserción en salidas_stock con soporte de variantes de columnas
+      let { data, error } = await supabase
         .from('salidas_stock')
         .insert([payloadSalida])
         .select();
 
       if (error) {
-        console.error("Error salida:", error);
-        setSupabaseErrorAlert({
-          title: 'Error al registrar Salida (salidas_stock)',
-          message: error.message || 'Fallo en la inserción de la salida en Supabase.',
-          details: error.details || JSON.stringify(error),
-          code: error.code,
-          hint: error.hint,
-        });
-        throw error;
+        console.warn("Inserción con payload completo falló en salidas_stock, reintentando variantes:", error);
+        // Reintento con fecha
+        const fallback1 = {
+          producto_id: productoId,
+          cantidad: cantidad,
+          precio_unitario: precio_unitario,
+          costo_unitario: costo_unitario,
+          ingreso_total: ingreso_total,
+          utilidad_neta: utilidad_neta,
+          canal_venta: canal_venta,
+          cliente: cliente,
+          orden_ref: orden_ref,
+          fecha: selectedDate,
+          notas: notasWithTag,
+        };
+        const res1 = await supabase.from('salidas_stock').insert([fallback1]).select();
+        if (res1.error) {
+          // Reintento con created_at
+          const fallback2 = {
+            producto_id: productoId,
+            cantidad: cantidad,
+            precio_unitario: precio_unitario,
+            costo_unitario: costo_unitario,
+            ingreso_total: ingreso_total,
+            utilidad_neta: utilidad_neta,
+            canal_venta: canal_venta,
+            cliente: cliente,
+            orden_ref: orden_ref,
+            created_at: selectedDate,
+            notas: notasWithTag,
+          };
+          const res2 = await supabase.from('salidas_stock').insert([fallback2]).select();
+          if (res2.error) {
+            // Reintento básico con nota etiquetada
+            const fallback3 = {
+              producto_id: productoId,
+              cantidad: cantidad,
+              precio_unitario: precio_unitario,
+              costo_unitario: costo_unitario,
+              ingreso_total: ingreso_total,
+              utilidad_neta: utilidad_neta,
+              canal_venta: canal_venta,
+              cliente: cliente,
+              orden_ref: orden_ref,
+              notas: notasWithTag,
+            };
+            const res3 = await supabase.from('salidas_stock').insert([fallback3]).select();
+            if (res3.error) {
+              console.error("Error definitivo salida:", res3.error);
+              setSupabaseErrorAlert({
+                title: 'Error al registrar Salida (salidas_stock)',
+                message: res3.error.message || 'Fallo en la inserción de la salida en Supabase.',
+                details: res3.error.details || JSON.stringify(res3.error),
+                code: res3.error.code,
+                hint: res3.error.hint,
+              });
+              throw res3.error;
+            }
+            data = res3.data;
+          } else {
+            data = res2.data;
+          }
+        } else {
+          data = res1.data;
+        }
       }
 
       // 4.2 Registrar en bitacora_auditoria
       await logAuditToSupabase({
         modulo: 'Salidas',
         severidad: 'info',
-        descripcion: `Despacho de stock: -${cantidad} unidades de "${targetProd?.name || 'Producto'}" para "${cliente}" vía ${canal_venta}. Total: $${ingreso_total.toLocaleString()}.`,
+        descripcion: `Despacho de stock: -${cantidad} unidades de "${targetProd?.name || 'Producto'}" para "${cliente}" vía ${canal_venta}. Fecha: ${formatDate(selectedDate)}. Total: $${ingreso_total.toLocaleString()}.`,
         recurso_afectado: targetProd?.sku || String(productoId),
-        detalles: { payloadSalida, cliente, ingreso_total, utilidad_neta },
+        detalles: { payloadSalida, cliente, ingreso_total, utilidad_neta, fecha: selectedDate },
       });
 
       // 4.3 Re-sincronizar el inventario y transacciones desde Supabase (el Trigger en BD descuenta el stock automáticamente)
       await fetchAllDataFromSupabase();
 
       setSyncStatus('synced');
-      setStatusMessage(`Salida de -${cantidad} unidades (${cliente}) guardada en Supabase.`);
+      setStatusMessage(`Salida de -${cantidad} unidades (${cliente} - ${formatDate(selectedDate)}) guardada en Supabase.`);
       return { success: true, data };
     } catch (err: any) {
       console.error("Error salida:", err);
