@@ -28,6 +28,38 @@ export const ProductHistoryModal: React.FC<ProductHistoryModalProps> = ({
     return exits.filter(e => String(e.productId) === String(product.id) || (product.sku && e.productSku === product.sku));
   }, [exits, product.id, product.sku]);
 
+  // Check if there is already an explicit initial load entry in entries
+  const hasExplicitInitialEntry = useMemo(() => {
+    return productEntries.some(
+      e => (e.invoiceRef && e.invoiceRef.toUpperCase() === 'INICIAL') || 
+           (e.notes && e.notes.toLowerCase().includes('inicial'))
+    );
+  }, [productEntries]);
+
+  // If no explicit initial entry exists, synthesize the baseline initial stock movement
+  const initialStockMovement = useMemo(() => {
+    if (hasExplicitInitialEntry) return null;
+
+    const explicitEntriesQty = productEntries.reduce((acc, e) => acc + e.quantity, 0);
+    const exitsQty = productExits.reduce((acc, e) => acc + e.quantity, 0);
+    // Calculated initial baseline units before subsequent restocks and sales
+    const initialQty = Math.max(0, product.currentStock + exitsQty - explicitEntriesQty);
+
+    if (initialQty <= 0) return null;
+
+    return {
+      id: `initial-entry-${product.id}`,
+      date: product.createdAt || new Date().toISOString(),
+      type: 'entry' as const,
+      quantity: initialQty,
+      priceOrCost: product.costPrice,
+      total: Number((initialQty * product.costPrice).toFixed(2)),
+      ref: 'INICIAL',
+      party: product.supplier || 'Inventario Inicial',
+      notes: 'Carga de inventario inicial',
+    };
+  }, [hasExplicitInitialEntry, productEntries, productExits, product]);
+
   // Merge movements in reverse chronological order
   const movements = useMemo(() => {
     const list: Array<{
@@ -42,6 +74,11 @@ export const ProductHistoryModal: React.FC<ProductHistoryModalProps> = ({
       party?: string;
       notes?: string;
     }> = [];
+
+    // Include initial stock entry if not explicitly in entries table
+    if (initialStockMovement) {
+      list.push(initialStockMovement);
+    }
 
     productEntries.forEach(e => {
       list.push({
@@ -73,10 +110,14 @@ export const ProductHistoryModal: React.FC<ProductHistoryModalProps> = ({
     });
 
     return list.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [productEntries, productExits]);
+  }, [initialStockMovement, productEntries, productExits]);
 
   // Aggregates for this product
-  const totalPurchasedUnits = productEntries.reduce((acc, curr) => acc + curr.quantity, 0);
+  const totalPurchasedUnits = useMemo(() => {
+    const fromEntries = productEntries.reduce((acc, curr) => acc + curr.quantity, 0);
+    const fromInitial = initialStockMovement ? initialStockMovement.quantity : 0;
+    return fromEntries + fromInitial;
+  }, [productEntries, initialStockMovement]);
   const totalSoldUnits = productExits.reduce((acc, curr) => acc + curr.quantity, 0);
   const totalRevenueGenerated = productExits.reduce((acc, curr) => acc + curr.totalRevenue, 0);
   const totalProfitGenerated = productExits.reduce((acc, curr) => acc + curr.profit, 0);
