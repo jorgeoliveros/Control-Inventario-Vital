@@ -206,36 +206,58 @@ const MainApp: React.FC = () => {
       }
 
       // 1.3 Cargar salidas_stock
-      const { data: exitsData, error: exitsError } = await supabase
+      let exitsDataList: any[] | null = null;
+      
+      // Intentar consulta con relación a inventario
+      const { data: exitsDataWithInv, error: exitsErrorWithInv } = await supabase
         .from('salidas_stock')
-        .select('*')
+        .select('*, inventario(nombre, sku)')
         .order('created_at', { ascending: false });
 
-      if (exitsError) {
-        console.error("Error cargando salidas_stock:", exitsError);
-      } else if (exitsData && Array.isArray(exitsData)) {
-        const mappedExits: StockExit[] = exitsData.map((s: any) => {
-          const rev = Number(s.ingreso_total ?? s.totalRevenue ?? (Number(s.cantidad || 0) * Number(s.precio_unitario || 0)));
-          const cost = Number(s.costo_unitario ?? 0) * Number(s.cantidad || 0);
-          const profit = Number(s.utilidad_neta ?? s.profit ?? (rev - cost));
+      if (exitsErrorWithInv) {
+        console.warn("Consulta con relación a inventario falló, reintentando select(*):", exitsErrorWithInv);
+        const { data: exitsDataSimple, error: exitsErrorSimple } = await supabase
+          .from('salidas_stock')
+          .select('*')
+          .order('created_at', { ascending: false });
+        if (exitsErrorSimple) {
+          console.error("Error cargando salidas_stock:", exitsErrorSimple);
+        } else {
+          exitsDataList = exitsDataSimple;
+        }
+      } else {
+        exitsDataList = exitsDataWithInv;
+      }
+
+      if (exitsDataList && Array.isArray(exitsDataList)) {
+        const mappedExits: StockExit[] = exitsDataList.map((s: any) => {
+          const qty = Number(s.cantidad || 0);
+          const unitPrice = Number(s.precio_unitario || 0);
+          const unitCost = Number(s.costo_unitario || 0);
+          const rev = Number(s.ingreso_total ?? (qty * unitPrice));
+          const cost = Number(unitCost * qty);
+          const profit = Number(s.utilidad_neta ?? (rev - cost));
           const margin = rev > 0 ? Number(((profit / rev) * 100).toFixed(1)) : 0;
           const matchedProd = prodMap.get(String(s.producto_id || s.productId || ''));
 
+          const invRel = Array.isArray(s.inventario) ? s.inventario[0] : s.inventario;
+          const productName = invRel?.nombre || s.producto_nombre || matchedProd?.name || 'Producto';
+          const productSku = invRel?.sku || s.producto_sku || matchedProd?.sku || '';
           const clientName = (s.cliente || s.customerName || s.customer_name || s.nombre_cliente || s.cliente_nombre || '').trim();
 
           return {
             id: String(s.id),
             productId: String(s.producto_id || s.productId || ''),
-            productName: s.producto_nombre || s.productName || matchedProd?.name || 'Producto',
-            productSku: s.producto_sku || s.productSku || matchedProd?.sku || '',
-            quantity: Number(s.cantidad ?? s.quantity ?? 0),
-            unitSellingPrice: Number(s.precio_unitario ?? s.unitSellingPrice ?? 0),
-            unitCostPrice: Number(s.costo_unitario ?? s.unitCostPrice ?? 0),
+            productName: productName,
+            productSku: productSku,
+            quantity: qty,
+            unitSellingPrice: unitPrice,
+            unitCostPrice: unitCost,
             totalRevenue: rev,
             totalCost: cost,
             profit: profit,
             profitMarginPercent: margin,
-            type: s.tipo || s.type || 'sale',
+            type: 'sale',
             channel: s.canal_venta || s.channel || 'Tienda Web',
             customerName: clientName || 'Consumidor Final',
             orderRef: s.orden_ref || s.orderRef || '',
