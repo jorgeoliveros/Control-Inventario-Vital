@@ -17,16 +17,16 @@ export const ProductHistoryModal: React.FC<ProductHistoryModalProps> = ({
 }) => {
   const { entries, exits, settings } = useInventory();
 
-  if (!isOpen || !product) return null;
-
-  // Filter entries and exits for this product
+  // Filter entries and exits for this product (guaranteed top-level hook execution)
   const productEntries = useMemo(() => {
+    if (!product) return [];
     return entries.filter(e => String(e.productId) === String(product.id) || (product.sku && e.productSku === product.sku));
-  }, [entries, product.id, product.sku]);
+  }, [entries, product?.id, product?.sku]);
 
   const productExits = useMemo(() => {
+    if (!product) return [];
     return exits.filter(e => String(e.productId) === String(product.id) || (product.sku && e.productSku === product.sku));
-  }, [exits, product.id, product.sku]);
+  }, [exits, product?.id, product?.sku]);
 
   // Check if there is already an explicit initial load entry in entries
   const hasExplicitInitialEntry = useMemo(() => {
@@ -38,12 +38,12 @@ export const ProductHistoryModal: React.FC<ProductHistoryModalProps> = ({
 
   // If no explicit initial entry exists, synthesize the baseline initial stock movement
   const initialStockMovement = useMemo(() => {
-    if (hasExplicitInitialEntry) return null;
+    if (!product || hasExplicitInitialEntry) return null;
 
     const explicitEntriesQty = productEntries.reduce((acc, e) => acc + e.quantity, 0);
     const exitsQty = productExits.reduce((acc, e) => acc + e.quantity, 0);
     // Calculated initial baseline units before subsequent restocks and sales
-    const initialQty = Math.max(0, product.currentStock + exitsQty - explicitEntriesQty);
+    const initialQty = Math.max(0, (product.currentStock || 0) + exitsQty - explicitEntriesQty);
 
     if (initialQty <= 0) return null;
 
@@ -52,8 +52,8 @@ export const ProductHistoryModal: React.FC<ProductHistoryModalProps> = ({
       date: product.createdAt || new Date().toISOString(),
       type: 'entry' as const,
       quantity: initialQty,
-      priceOrCost: product.costPrice,
-      total: Number((initialQty * product.costPrice).toFixed(2)),
+      priceOrCost: product.costPrice || 0,
+      total: Number((initialQty * (product.costPrice || 0)).toFixed(2)),
       ref: 'INICIAL',
       party: product.supplier || 'Inventario Inicial',
       notes: 'Carga de inventario inicial',
@@ -118,6 +118,9 @@ export const ProductHistoryModal: React.FC<ProductHistoryModalProps> = ({
     const fromInitial = initialStockMovement ? initialStockMovement.quantity : 0;
     return fromEntries + fromInitial;
   }, [productEntries, initialStockMovement]);
+
+  if (!isOpen || !product) return null;
+
   const totalSoldUnits = productExits.reduce((acc, curr) => acc + curr.quantity, 0);
   const totalRevenueGenerated = productExits.reduce((acc, curr) => acc + curr.totalRevenue, 0);
   const totalProfitGenerated = productExits.reduce((acc, curr) => acc + curr.profit, 0);
