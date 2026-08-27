@@ -642,7 +642,7 @@ const MainApp: React.FC = () => {
     }
   };
 
-  // 4. SALIDAS / VENTAS: INSERT EN salidas_stock (con producto_id UUID y cálculos previos) + UPDATE STOCK EN inventario + REGISTRO EN bitacora_auditoria
+  // 4. SALIDAS / VENTAS: INSERT EN salidas_stock (con producto_id UUID y cálculos previos) + REGISTRO EN bitacora_auditoria + RE-FETCH DESDE SUPABASE
   const handleStockExitToSupabase = async (exitData: any) => {
     setIsSaving(true);
     setSyncStatus('saving');
@@ -699,25 +699,7 @@ const MainApp: React.FC = () => {
         throw error;
       }
 
-      // 4.2 Descontar stock en inventario
-      if (targetProd) {
-        const newStock = Math.max(0, Number(targetProd.currentStock) - cantidad);
-        const { error: invErr } = await supabase
-          .from('inventario')
-          .update({ cantidad: newStock })
-          .eq('id', targetProd.id);
-
-        if (invErr) {
-          console.warn("Reintentando descuento de stock por SKU o columnas alternativas:", invErr);
-          if (targetProd.sku) {
-            await supabase.from('inventario').update({ cantidad: newStock }).eq('sku', targetProd.sku);
-          }
-          // Intentar actualizar columna 'stock' si 'cantidad' no existiera
-          await supabase.from('inventario').update({ stock: newStock }).eq('id', targetProd.id);
-        }
-      }
-
-      // 4.3 Registrar en bitacora_auditoria
+      // 4.2 Registrar en bitacora_auditoria
       await logAuditToSupabase({
         modulo: 'Salidas',
         severidad: 'info',
@@ -726,50 +708,17 @@ const MainApp: React.FC = () => {
         detalles: { payloadSalida, cliente, ingreso_total, utilidad_neta },
       });
 
-      // Actualizar estado local
-      const res = registerStockExit({
-        ...exitData,
-        productId: productoId,
-        quantity: cantidad,
-        unitSellingPrice: precio_unitario,
-        customerName: cliente,
-      });
-
-      // Garantizar actualización reactiva inmediata en el estado de productos
-      setProducts(prev =>
-        prev.map(p => {
-          if (String(p.id) === String(productoId) || (targetProd && p.sku === targetProd.sku)) {
-            return {
-              ...p,
-              currentStock: Math.max(0, Number(p.currentStock) - cantidad),
-              updatedAt: new Date().toISOString(),
-            };
-          }
-          return p;
-        })
-      );
+      // 4.3 Re-sincronizar el inventario y transacciones desde Supabase (el Trigger en BD descuenta el stock automáticamente)
+      await fetchAllDataFromSupabase();
 
       setSyncStatus('synced');
       setStatusMessage(`Salida de -${cantidad} unidades (${cliente}) guardada en Supabase.`);
-      return res;
+      return { success: true, data };
     } catch (err: any) {
       console.error("Error salida:", err);
       setSyncStatus('error');
       setStatusMessage(`Error Supabase: ${err?.message || 'Error en salidas_stock'}`);
-      const res = registerStockExit(exitData);
-      setProducts(prev =>
-        prev.map(p => {
-          if (String(p.id) === String(exitData.productId)) {
-            return {
-              ...p,
-              currentStock: Math.max(0, Number(p.currentStock) - Number(exitData.quantity)),
-              updatedAt: new Date().toISOString(),
-            };
-          }
-          return p;
-        })
-      );
-      return res;
+      return registerStockExit(exitData);
     } finally {
       setIsSaving(false);
       setTimeout(() => setStatusMessage(''), 4500);
