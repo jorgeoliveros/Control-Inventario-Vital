@@ -47,9 +47,25 @@ export const ProductHistoryModal: React.FC<ProductHistoryModalProps> = ({
 
     if (initialQty <= 0) return null;
 
+    // Date for initial stock: place it right before the earliest movement or use product creation date
+    const allTimestamps = [...productEntries, ...productExits]
+      .map(m => new Date(m.date).getTime())
+      .filter(t => !isNaN(t));
+
+    let initialDate = product.createdAt;
+    if (allTimestamps.length > 0) {
+      const earliestMovementTime = Math.min(...allTimestamps);
+      // If product.createdAt is missing, invalid, or AFTER the earliest movement, position initial stock 1 minute before the earliest movement
+      if (!initialDate || isNaN(new Date(initialDate).getTime()) || new Date(initialDate).getTime() >= earliestMovementTime) {
+        initialDate = new Date(earliestMovementTime - 60000).toISOString();
+      }
+    } else if (!initialDate || isNaN(new Date(initialDate).getTime())) {
+      initialDate = new Date().toISOString();
+    }
+
     return {
       id: `initial-entry-${product.id}`,
-      date: product.createdAt || new Date().toISOString(),
+      date: initialDate,
       type: 'entry' as const,
       quantity: initialQty,
       priceOrCost: product.costPrice || 0,

@@ -11,6 +11,16 @@ interface StockExitModalProps {
   onSaveExit?: (exitData: any) => Promise<any> | any;
 }
 
+const getLocalDateTimeString = (d: Date = new Date()) => {
+  const pad = (n: number) => n.toString().padStart(2, '0');
+  const year = d.getFullYear();
+  const month = pad(d.getMonth() + 1);
+  const day = pad(d.getDate());
+  const hours = pad(d.getHours());
+  const minutes = pad(d.getMinutes());
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+};
+
 export const StockExitModal: React.FC<StockExitModalProps> = ({
   isOpen,
   onClose,
@@ -27,7 +37,7 @@ export const StockExitModal: React.FC<StockExitModalProps> = ({
   const [type, setType] = useState<ExitType>('sale');
   const [customerName, setCustomerName] = useState<string>('');
   const [orderRef, setOrderRef] = useState<string>('');
-  const [date, setDate] = useState<string>(new Date().toISOString().slice(0, 16));
+  const [date, setDate] = useState<string>(getLocalDateTimeString());
   const [notes, setNotes] = useState<string>('');
   const [error, setError] = useState<string>('');
 
@@ -44,7 +54,7 @@ export const StockExitModal: React.FC<StockExitModalProps> = ({
       setQuantity(1);
     }
     setOrderRef(`ORD-${Math.floor(1000 + Math.random() * 9000)}`);
-    setDate(new Date().toISOString().slice(0, 16));
+    setDate(getLocalDateTimeString());
     setError('');
   }, [selectedProduct, isOpen, products]);
 
@@ -84,6 +94,14 @@ export const StockExitModal: React.FC<StockExitModalProps> = ({
     }
 
     const finalCustomer = customerName.trim() || 'Consumidor Final';
+    let finalDateIso = new Date().toISOString();
+    if (date) {
+      const parsed = new Date(date);
+      if (!isNaN(parsed.getTime())) {
+        finalDateIso = parsed.toISOString();
+      }
+    }
+
     const payload = {
       productId,
       quantity,
@@ -93,7 +111,7 @@ export const StockExitModal: React.FC<StockExitModalProps> = ({
       customerName: finalCustomer,
       cliente: finalCustomer,
       orderRef: orderRef.trim(),
-      date: new Date(date).toISOString(),
+      date: finalDateIso,
       notes: notes.trim(),
     };
 

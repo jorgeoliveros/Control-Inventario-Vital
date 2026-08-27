@@ -12,6 +12,16 @@ interface StockEntryModalProps {
   onSaveEntry?: (entryData: any) => Promise<void> | void;
 }
 
+const getLocalDateTimeString = (d: Date = new Date()) => {
+  const pad = (n: number) => n.toString().padStart(2, '0');
+  const year = d.getFullYear();
+  const month = pad(d.getMonth() + 1);
+  const day = pad(d.getDate());
+  const hours = pad(d.getHours());
+  const minutes = pad(d.getMinutes());
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+};
+
 export const StockEntryModal: React.FC<StockEntryModalProps> = ({
   isOpen,
   onClose,
@@ -27,7 +37,7 @@ export const StockEntryModal: React.FC<StockEntryModalProps> = ({
   const [unitCost, setUnitCost] = useState<number>(0);
   const [supplier, setSupplier] = useState<string>('');
   const [invoiceRef, setInvoiceRef] = useState<string>('');
-  const [date, setDate] = useState<string>(new Date().toISOString().slice(0, 16));
+  const [date, setDate] = useState<string>(getLocalDateTimeString());
   const [notes, setNotes] = useState<string>('');
   const [updateProductCost, setUpdateProductCost] = useState<boolean>(true);
   const [error, setError] = useState<string>('');
@@ -47,7 +57,7 @@ export const StockEntryModal: React.FC<StockEntryModalProps> = ({
       setQuantity(10);
     }
     setInvoiceRef(`FAC-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}`);
-    setDate(new Date().toISOString().slice(0, 16));
+    setDate(getLocalDateTimeString());
     setError('');
   }, [selectedProduct, isOpen, products]);
 
@@ -80,13 +90,21 @@ export const StockEntryModal: React.FC<StockEntryModalProps> = ({
       return;
     }
 
+    let finalDateIso = new Date().toISOString();
+    if (date) {
+      const parsed = new Date(date);
+      if (!isNaN(parsed.getTime())) {
+        finalDateIso = parsed.toISOString();
+      }
+    }
+
     const payload = {
       productId,
       quantity,
       unitCost,
       supplier: supplier.trim() || 'Proveedor General',
       invoiceRef: invoiceRef.trim(),
-      date: new Date(date).toISOString(),
+      date: finalDateIso,
       notes: notes.trim(),
       updateProductCost,
     };
