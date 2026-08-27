@@ -31,11 +31,6 @@ import {
 import { rolePresets } from './data/initialData';
 import { supabase } from './supabaseClient';
 import { 
-  Database, 
-  Loader2, 
-  RefreshCw, 
-  CheckCircle2, 
-  AlertCircle, 
   X,
   AlertTriangle,
   Info
@@ -877,80 +872,6 @@ const MainApp: React.FC = () => {
         onOpenSwitchUser={() => setIsSwitchUserModalOpen(true)}
       />
 
-      {/* Supabase Multi-Table Live Synchronization Indicator Bar */}
-      <div className="bg-white border-b border-stone-200/80 px-4 sm:px-6 lg:px-8 py-2">
-        <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3 text-xs">
-          
-          {/* Status badge & Sync indicator */}
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full font-medium bg-stone-100 text-stone-700 border border-stone-200">
-              <Database className="w-3.5 h-3.5 text-emerald-700" />
-              <span>Supabase conectado:</span>
-              <div className="flex items-center gap-1 text-[11px] font-mono text-stone-500">
-                <span className="bg-stone-200/70 px-1 py-0.2 rounded" title="inventario">inv ({syncedCounts.products})</span>
-                <span className="bg-stone-200/70 px-1 py-0.2 rounded" title="entradas_stock">ent ({syncedCounts.entries})</span>
-                <span className="bg-stone-200/70 px-1 py-0.2 rounded" title="salidas_stock">sal ({syncedCounts.exits})</span>
-                <span className="bg-stone-200/70 px-1 py-0.2 rounded" title="usuarios">usr ({syncedCounts.users})</span>
-                <span className="bg-stone-200/70 px-1 py-0.2 rounded" title="bitacora_auditoria">aud ({syncedCounts.audit})</span>
-              </div>
-            </div>
-
-            {/* Loading / Saving / Synced Indicator */}
-            {isLoading && (
-              <div className="flex items-center gap-1.5 text-amber-700 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-full animate-pulse">
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                <span>Sincronizando 5 tablas...</span>
-              </div>
-            )}
-
-            {isSaving && (
-              <div className="flex items-center gap-1.5 text-sky-700 bg-sky-50 border border-sky-200 px-2.5 py-1 rounded-full animate-pulse">
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                <span>Guardando en Supabase...</span>
-              </div>
-            )}
-
-            {!isLoading && !isSaving && syncStatus === 'synced' && (
-              <div className="flex items-center gap-1.5 text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-full">
-                <CheckCircle2 className="w-3.5 h-3.5" />
-                <span>Tablas sincronizadas</span>
-              </div>
-            )}
-
-            {syncStatus === 'error' && (
-              <div className="flex items-center gap-1.5 text-rose-700 bg-rose-50 border border-rose-200 px-2.5 py-1 rounded-full" title={statusMessage}>
-                <AlertCircle className="w-3.5 h-3.5" />
-                <span>Atención de conexión</span>
-              </div>
-            )}
-
-            {statusMessage && (
-              <span className="text-stone-600 hidden lg:inline-block truncate max-w-md">
-                {statusMessage}
-              </span>
-            )}
-          </div>
-
-          {/* Right controls: Last sync time & manual refresh */}
-          <div className="flex items-center gap-3 text-stone-500">
-            {lastSyncTime && (
-              <span className="text-[11px] hidden md:inline">
-                Sincronizado: {lastSyncTime}
-              </span>
-            )}
-            <button
-              onClick={() => fetchAllDataFromSupabase()}
-              disabled={isLoading || isSaving}
-              className="inline-flex items-center gap-1 text-stone-600 hover:text-emerald-700 bg-stone-100 hover:bg-emerald-50 border border-stone-200 hover:border-emerald-200 px-2.5 py-1 rounded-lg text-xs transition-colors cursor-pointer disabled:opacity-50"
-              title="Volver a consultar todas las tablas de Supabase"
-            >
-              <RefreshCw className={`w-3 h-3 ${isLoading ? 'animate-spin' : ''}`} />
-              <span>Sincronizar Tablas</span>
-            </button>
-          </div>
-        </div>
-      </div>
-
       {/* Main Content Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
         
@@ -1008,12 +929,9 @@ const MainApp: React.FC = () => {
 
       {/* Footer */}
       <footer className="border-t border-stone-200 bg-white py-4 mt-auto text-center text-xs text-stone-500">
-        <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
-          <span className="font-semibold text-stone-700">
-            VITAL &middot; Sistema de Gestión de Inventarios sincronizado con Supabase
-          </span>
-          <span className="text-[11px] text-stone-400">
-            Tablas: <code className="font-mono bg-stone-100 px-1 py-0.5 rounded text-stone-600">inventario</code>, <code className="font-mono bg-stone-100 px-1 py-0.5 rounded text-stone-600">entradas_stock</code>, <code className="font-mono bg-stone-100 px-1 py-0.5 rounded text-stone-600">salidas_stock</code>, <code className="font-mono bg-stone-100 px-1 py-0.5 rounded text-stone-600">usuarios</code>, <code className="font-mono bg-stone-100 px-1 py-0.5 rounded text-stone-600">bitacora_auditoria</code>
+        <div className="max-w-7xl mx-auto px-4 flex items-center justify-center">
+          <span className="font-semibold text-stone-600">
+            VITAL &middot; Sistema de Gestión de Inventarios y Control de Stock
           </span>
         </div>
       </footer>
