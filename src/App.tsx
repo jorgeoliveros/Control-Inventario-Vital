@@ -166,9 +166,9 @@ const MainApp: React.FC = () => {
             name: item.nombre || item.name || 'Sin nombre',
             sku: item.sku || `SKU-${item.id}`,
             category: item.categoria || item.category || 'General',
-            currentStock: Number(item.cantidad ?? item.currentStock ?? 0),
-            sellingPrice: Number(item.precio ?? item.sellingPrice ?? 0),
-            costPrice: Number(item.costo ?? item.costPrice ?? (Number(item.precio || 0) * 0.6)),
+            currentStock: Number(item.cantidad ?? item.stock ?? item.stock_actual ?? item.current_stock ?? item.currentStock ?? 0),
+            sellingPrice: Number(item.precio ?? item.precio_venta ?? item.sellingPrice ?? 0),
+            costPrice: Number(item.costo ?? item.costo_unitario ?? item.costPrice ?? (Number(item.precio || 0) * 0.6)),
             minStock: Number(item.min_stock ?? item.minStock ?? 5),
             unit: item.unidad || item.unit || 'unidades',
             supplier: item.proveedor || item.supplier || 'Proveedor',
@@ -177,6 +177,7 @@ const MainApp: React.FC = () => {
             updatedAt: item.updated_at || item.updatedAt || new Date().toISOString(),
           };
           prodMap.set(p.id, p);
+          if (p.sku) prodMap.set(p.sku, p);
           return p;
         });
         setProducts(mappedProducts);
@@ -501,7 +502,7 @@ const MainApp: React.FC = () => {
 
     try {
       // Obtener producto seleccionado y su UUID
-      const targetProd = products.find(p => p.id === entryData.productId);
+      const targetProd = products.find(p => String(p.id) === String(entryData.productId) || p.sku === String(entryData.productId));
       const productoId = targetProd ? targetProd.id : entryData.productId;
 
       const cantidad = Number(entryData.quantity);
@@ -540,7 +541,7 @@ const MainApp: React.FC = () => {
 
       // 3.2 Actualizar inventario (cantidad y opcionalmente costo)
       if (targetProd) {
-        const newStock = targetProd.currentStock + cantidad;
+        const newStock = Number(targetProd.currentStock) + cantidad;
         const updateFields: any = { cantidad: newStock };
         if (entryData.updateProductCost) {
           updateFields.costo = costo_unitario;
@@ -552,7 +553,12 @@ const MainApp: React.FC = () => {
           .eq('id', targetProd.id);
 
         if (invErr) {
-          console.error("Error actualizando stock en inventario:", invErr);
+          console.warn("Reintentando actualización de inventario por SKU o columnas alternativas:", invErr);
+          if (targetProd.sku) {
+            await supabase.from('inventario').update(updateFields).eq('sku', targetProd.sku);
+          }
+          // Intentar actualizar columna 'stock' si 'cantidad' no existiera
+          await supabase.from('inventario').update({ stock: newStock }).eq('id', targetProd.id);
         }
       }
 
@@ -565,7 +571,7 @@ const MainApp: React.FC = () => {
         detalles: { payloadEntrada, totalCost: costo_total },
       });
 
-      // Actualizar estado local
+      // Actualizar estado local en contexto
       registerStockEntry({
         ...entryData,
         productId: productoId,
@@ -575,12 +581,40 @@ const MainApp: React.FC = () => {
         supplier: proveedor,
       });
 
+      // Garantizar actualización reactiva inmediata en el estado de productos
+      setProducts(prev =>
+        prev.map(p => {
+          if (String(p.id) === String(productoId) || (targetProd && p.sku === targetProd.sku)) {
+            return {
+              ...p,
+              currentStock: Number(p.currentStock) + cantidad,
+              costPrice: entryData.updateProductCost ? costo_unitario : p.costPrice,
+              supplier: proveedor || p.supplier,
+              updatedAt: new Date().toISOString(),
+            };
+          }
+          return p;
+        })
+      );
+
       setSyncStatus('synced');
       setStatusMessage(`Ingreso de +${cantidad} unidades guardado en Supabase.`);
     } catch (err: any) {
       console.error("Error entrada:", err);
       // Mantener consistencia local
       registerStockEntry(entryData);
+      setProducts(prev =>
+        prev.map(p => {
+          if (String(p.id) === String(entryData.productId)) {
+            return {
+              ...p,
+              currentStock: Number(p.currentStock) + Number(entryData.quantity),
+              updatedAt: new Date().toISOString(),
+            };
+          }
+          return p;
+        })
+      );
       setSyncStatus('error');
       setStatusMessage(`Error Supabase: ${err?.message || 'Error en entradas_stock'}`);
     } finally {
@@ -597,7 +631,7 @@ const MainApp: React.FC = () => {
 
     try {
       // Obtener producto seleccionado y su UUID
-      const targetProd = products.find(p => p.id === exitData.productId);
+      const targetProd = products.find(p => String(p.id) === String(exitData.productId) || p.sku === String(exitData.productId));
       const productoId = targetProd ? targetProd.id : exitData.productId;
 
       const cantidad = Number(exitData.quantity);
@@ -648,14 +682,19 @@ const MainApp: React.FC = () => {
 
       // 4.2 Descontar stock en inventario
       if (targetProd) {
-        const newStock = Math.max(0, targetProd.currentStock - cantidad);
+        const newStock = Math.max(0, Number(targetProd.currentStock) - cantidad);
         const { error: invErr } = await supabase
           .from('inventario')
           .update({ cantidad: newStock })
           .eq('id', targetProd.id);
 
         if (invErr) {
-          console.error("Error descontando stock en inventario:", invErr);
+          console.warn("Reintentando descuento de stock por SKU o columnas alternativas:", invErr);
+          if (targetProd.sku) {
+            await supabase.from('inventario').update({ cantidad: newStock }).eq('sku', targetProd.sku);
+          }
+          // Intentar actualizar columna 'stock' si 'cantidad' no existiera
+          await supabase.from('inventario').update({ stock: newStock }).eq('id', targetProd.id);
         }
       }
 
@@ -677,6 +716,20 @@ const MainApp: React.FC = () => {
         customerName: cliente,
       });
 
+      // Garantizar actualización reactiva inmediata en el estado de productos
+      setProducts(prev =>
+        prev.map(p => {
+          if (String(p.id) === String(productoId) || (targetProd && p.sku === targetProd.sku)) {
+            return {
+              ...p,
+              currentStock: Math.max(0, Number(p.currentStock) - cantidad),
+              updatedAt: new Date().toISOString(),
+            };
+          }
+          return p;
+        })
+      );
+
       setSyncStatus('synced');
       setStatusMessage(`Salida de -${cantidad} unidades (${cliente}) guardada en Supabase.`);
       return res;
@@ -684,7 +737,20 @@ const MainApp: React.FC = () => {
       console.error("Error salida:", err);
       setSyncStatus('error');
       setStatusMessage(`Error Supabase: ${err?.message || 'Error en salidas_stock'}`);
-      return registerStockExit(exitData);
+      const res = registerStockExit(exitData);
+      setProducts(prev =>
+        prev.map(p => {
+          if (String(p.id) === String(exitData.productId)) {
+            return {
+              ...p,
+              currentStock: Math.max(0, Number(p.currentStock) - Number(exitData.quantity)),
+              updatedAt: new Date().toISOString(),
+            };
+          }
+          return p;
+        })
+      );
+      return res;
     } finally {
       setIsSaving(false);
       setTimeout(() => setStatusMessage(''), 4500);
