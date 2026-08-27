@@ -463,6 +463,25 @@ const MainApp: React.FC = () => {
             updatedAt: new Date().toISOString(),
           };
           setProducts(prev => [newProd, ...prev]);
+
+          if (newProd.currentStock > 0) {
+            const initialEntry: StockEntry = {
+              id: `entry-${Date.now()}`,
+              productId: newProd.id,
+              productName: newProd.name,
+              productSku: newProd.sku,
+              quantity: newProd.currentStock,
+              unitCost: newProd.costPrice,
+              totalCost: Number((newProd.currentStock * newProd.costPrice).toFixed(2)),
+              supplier: newProd.supplier || 'Inventario Inicial',
+              invoiceRef: 'INICIAL',
+              date: newProd.createdAt,
+              notes: 'Carga de inventario inicial',
+              updateProductCost: false,
+              registeredBy: currentUser?.name || 'Admin',
+            };
+            setEntries(prev => [initialEntry, ...prev]);
+          }
         } else {
           addProduct(formData);
         }
