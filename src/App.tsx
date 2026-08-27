@@ -182,7 +182,7 @@ const MainApp: React.FC = () => {
 
       if (entriesError) {
         console.error("Error cargando entradas_stock:", entriesError);
-      } else if (entriesData && Array.isArray(entriesData) && entriesData.length > 0) {
+      } else if (entriesData && Array.isArray(entriesData)) {
         const mappedEntries: StockEntry[] = entriesData.map((e: any) => {
           const matchedProd = prodMap.get(String(e.producto_id || e.productId || ''));
           return {
@@ -213,7 +213,7 @@ const MainApp: React.FC = () => {
 
       if (exitsError) {
         console.error("Error cargando salidas_stock:", exitsError);
-      } else if (exitsData && Array.isArray(exitsData) && exitsData.length > 0) {
+      } else if (exitsData && Array.isArray(exitsData)) {
         const mappedExits: StockExit[] = exitsData.map((s: any) => {
           const rev = Number(s.ingreso_total ?? s.totalRevenue ?? (Number(s.cantidad || 0) * Number(s.precio_unitario || 0)));
           const cost = Number(s.costo_unitario ?? 0) * Number(s.cantidad || 0);
