@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { X, History, ArrowDownToLine, ArrowUpFromLine, Calendar, DollarSign, Package, TrendingUp } from 'lucide-react';
+import { X, History, ArrowDownToLine, ArrowUpFromLine } from 'lucide-react';
 import { useInventory } from '../../context/InventoryContext';
 import { Product } from '../../types';
 import { formatCurrency, formatNumber, formatDate, calculateProfitMargin } from '../../utils/formatters';
@@ -17,7 +17,7 @@ export const ProductHistoryModal: React.FC<ProductHistoryModalProps> = ({
 }) => {
   const { entries, exits, settings } = useInventory();
 
-  // Filter entries and exits for this product (guaranteed top-level hook execution)
+  // 1. Filtrar entradas y salidas asociadas al producto
   const productEntries = useMemo(() => {
     if (!product) return [];
     return entries.filter(e => String(e.productId) === String(product.id) || (product.sku && e.productSku === product.sku));
@@ -28,7 +28,41 @@ export const ProductHistoryModal: React.FC<ProductHistoryModalProps> = ({
     return exits.filter(e => String(e.productId) === String(product.id) || (product.sku && e.productSku === product.sku));
   }, [exits, product?.id, product?.sku]);
 
-  // Merge movements in reverse chronological order
+  // 2. Verificar si ya existe una entrada explícita de inventario inicial en la base de datos
+  const hasExplicitInitialEntry = useMemo(() => {
+    return productEntries.some(
+      e => (e.invoiceRef && e.invoiceRef.toUpperCase() === 'INICIAL') || 
+           (e.notes && e.notes.toLowerCase().includes('inicial'))
+    );
+  }, [productEntries]);
+
+  // 3. Generar movimiento de Carga Inicial sintético si no existe en la tabla de entradas
+  const initialStockMovement = useMemo(() => {
+    if (!product || hasExplicitInitialEntry) return null;
+
+    const explicitEntriesQty = productEntries.reduce((acc, e) => acc + e.quantity, 0);
+    const exitsQty = productExits.reduce((acc, e) => acc + e.quantity, 0);
+    
+    // Cálculo de la cantidad base inicial cargada al sistema
+    const initialQty = Math.max(0, (product.currentStock || 0) + exitsQty - explicitEntriesQty);
+
+    if (initialQty <= 0) return null;
+
+    return {
+      id: `initial-entry-${product.id}`,
+      date: product.createdAt || new Date('2020-01-01').toISOString(),
+      type: 'entry' as const,
+      quantity: initialQty,
+      priceOrCost: product.costPrice || 0,
+      total: Number((initialQty * (product.costPrice || 0)).toFixed(2)),
+      ref: 'INICIAL',
+      party: product.supplier || 'Inventario Inicial',
+      notes: 'Carga de inventario inicial',
+      isInitialBaseline: true,
+    };
+  }, [hasExplicitInitialEntry, productEntries, productExits, product]);
+
+  // 4. Consolidar movimientos para el despliegue cronológico
   const movements = useMemo(() => {
     const list: Array<{
       id: string;
@@ -41,7 +75,12 @@ export const ProductHistoryModal: React.FC<ProductHistoryModalProps> = ({
       ref?: string;
       party?: string;
       notes?: string;
+      isInitialBaseline?: boolean;
     }> = [];
+
+    if (initialStockMovement) {
+      list.push(initialStockMovement);
+    }
 
     productEntries.forEach(e => {
       list.push({
@@ -72,18 +111,13 @@ export const ProductHistoryModal: React.FC<ProductHistoryModalProps> = ({
       });
     });
 
+    // Mantener la carga inicial siempre al principio o al final según fecha
     return list.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [productEntries, productExits]);
-
-  // Aggregates for this product
-  const totalPurchasedUnits = useMemo(() => {
-    return productEntries.reduce((acc, curr) => acc + curr.quantity, 0);
-  }, [productEntries]);
+  }, [initialStockMovement, productEntries, productExits]);
 
   if (!isOpen || !product) return null;
 
   const totalSoldUnits = productExits.reduce((acc, curr) => acc + curr.quantity, 0);
-  const totalRevenueGenerated = productExits.reduce((acc, curr) => acc + curr.totalRevenue, 0);
   const totalProfitGenerated = productExits.reduce((acc, curr) => acc + curr.profit, 0);
 
   const margin = calculateProfitMargin(product.costPrice, product.sellingPrice);
