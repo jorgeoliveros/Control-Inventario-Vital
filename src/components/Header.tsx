@@ -15,7 +15,9 @@ import {
   ShieldCheck,
   Users,
   UserCheck,
-  ChevronDown
+  ChevronDown,
+  LogOut,
+  Lock
 } from 'lucide-react';
 import { useInventory } from '../context/InventoryContext';
 import { ActiveTab, CurrencyCode } from '../types';
@@ -48,7 +50,8 @@ export const Header: React.FC<HeaderProps> = ({
     updateSettings,
     currentUser,
     hasPermission,
-    auditLogs
+    auditLogs,
+    logout
   } = useInventory();
 
   const currencies: { code: CurrencyCode; symbol: string; label: string }[] = [
@@ -142,7 +145,7 @@ export const Header: React.FC<HeaderProps> = ({
               id="btn-active-user-switcher"
               onClick={onOpenSwitchUser}
               className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl border border-stone-200 bg-stone-50 hover:bg-stone-100 hover:border-stone-300 transition-all cursor-pointer shadow-2xs group"
-              title="Cambiar de usuario / Ver permisos"
+              title="Cambiar de usuario (requiere PIN)"
             >
               <div className={`w-7 h-7 rounded-lg flex items-center justify-center font-bold text-xs font-['Outfit',sans-serif] ${getAvatarBg(currentUser.avatarColor)}`}>
                 {currentUser.initials}
@@ -156,6 +159,17 @@ export const Header: React.FC<HeaderProps> = ({
                   {currentUser.roleTitle}
                 </div>
               </div>
+            </button>
+
+            {/* Logout / Lock Platform Button */}
+            <button
+              id="btn-logout"
+              onClick={logout}
+              className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-bold text-rose-700 hover:text-rose-800 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-xl transition-colors cursor-pointer shadow-2xs"
+              title="Cerrar Sesión y Bloquear Plataforma"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Cerrar Sesión</span>
             </button>
 
             {/* Currency Selector */}
