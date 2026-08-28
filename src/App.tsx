@@ -17,6 +17,7 @@ import { ProductHistoryModal } from './components/modals/ProductHistoryModal';
 import { SettingsModal } from './components/modals/SettingsModal';
 import { SwitchUserModal } from './components/modals/SwitchUserModal';
 import { UserModal } from './components/modals/UserModal';
+import { LoginScreen } from './components/LoginScreen';
 import { 
   ActiveTab, 
   Product, 
@@ -54,6 +55,7 @@ const MainApp: React.FC = () => {
     setUsers, 
     setAuditLogs,
     currentUser,
+    isAuthenticated,
     addProduct, 
     updateProduct, 
     deleteProduct, 
@@ -99,7 +101,13 @@ const MainApp: React.FC = () => {
 
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [isSwitchUserModalOpen, setIsSwitchUserModalOpen] = useState(false);
+  const [switchUserTargetId, setSwitchUserTargetId] = useState<string | undefined>(undefined);
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
+
+  const handleOpenSwitchUser = (targetUserId?: string) => {
+    setSwitchUserTargetId(targetUserId);
+    setIsSwitchUserModalOpen(true);
+  };
 
   // Helper para registrar en la tabla bitacora_auditoria de Supabase
   const logAuditToSupabase = useCallback(async ({
@@ -1114,6 +1122,11 @@ const MainApp: React.FC = () => {
     setIsHistoryModalOpen(true);
   };
 
+  // Security Authentication Gate: Platform requires explicit 4-digit PIN authentication
+  if (!isAuthenticated) {
+    return <LoginScreen />;
+  }
+
   return (
     <div className="min-h-screen bg-stone-50 text-stone-800 flex flex-col font-['Plus_Jakarta_Sans',sans-serif]">
       {/* Header & Navigation */}
@@ -1124,7 +1137,7 @@ const MainApp: React.FC = () => {
         onOpenEntry={() => handleQuickEntry()}
         onOpenExit={() => handleQuickExit()}
         onOpenSettings={() => setIsSettingsModalOpen(true)}
-        onOpenSwitchUser={() => setIsSwitchUserModalOpen(true)}
+        onOpenSwitchUser={() => handleOpenSwitchUser()}
       />
 
       {/* Main Content Area */}
@@ -1177,7 +1190,10 @@ const MainApp: React.FC = () => {
         )}
 
         {activeTab === 'users' && (
-          <UsersTab onSaveUser={handleSaveUserToSupabase} />
+          <UsersTab 
+            onSaveUser={handleSaveUserToSupabase} 
+            onOpenSwitchUser={(targetId) => handleOpenSwitchUser(targetId)}
+          />
         )}
 
       </main>
@@ -1227,8 +1243,12 @@ const MainApp: React.FC = () => {
 
       <SwitchUserModal
         isOpen={isSwitchUserModalOpen}
-        onClose={() => setIsSwitchUserModalOpen(false)}
+        onClose={() => {
+          setIsSwitchUserModalOpen(false);
+          setSwitchUserTargetId(undefined);
+        }}
         onOpenNewUserModal={() => setIsUserModalOpen(true)}
+        initialTargetUserId={switchUserTargetId}
       />
 
       <UserModal
