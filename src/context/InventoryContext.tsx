@@ -10,10 +10,13 @@ interface InventoryContextType {
   settings: AppSettings;
   users: User[];
   currentUser: User;
+  isAuthenticated: boolean;
   auditLogs: AuditLogEntry[];
   // User & Permission methods
+  login: (userId: string, pin: string) => { success: boolean; error?: string };
+  logout: () => void;
   setCurrentUser: (user: User) => void;
-  switchUser: (userId: string, pin?: string) => { success: boolean; error?: string };
+  switchUser: (userId: string, pin: string) => { success: boolean; error?: string };
   addUser: (userData: Omit<User, 'id' | 'createdAt' | 'lastLogin'>) => User;
   updateUser: (id: string, updates: Partial<User>) => void;
   deleteUser: (id: string) => { success: boolean; error?: string };
@@ -90,6 +93,7 @@ const STORAGE_KEYS = {
   USERS: 'vital_inventory_users_v2',
   CURRENT_USER_ID: 'vital_inventory_current_user_id_v2',
   AUDIT_LOGS: 'vital_inventory_audit_logs_v2',
+  AUTH_SESSION: 'vital_inventory_auth_session_v2',
 };
 
 export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -145,6 +149,19 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       try { return JSON.parse(saved); } catch (e) { console.error(e); }
     }
     return initialAuditLogs;
+  });
+
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
+    const savedSession = sessionStorage.getItem(STORAGE_KEYS.AUTH_SESSION);
+    if (savedSession) {
+      try {
+        const parsed = JSON.parse(savedSession);
+        return Boolean(parsed && parsed.userId);
+      } catch (e) {
+        return false;
+      }
+    }
+    return false;
   });
 
   const currentUser = useMemo(() => {
@@ -233,38 +250,127 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     return !!currentUser.permissions?.[permission];
   };
 
-  // User Management
+  // User Management & Authentication
+  const login = (userId: string, pin: string): { success: boolean; error?: string } => {
+    const targetUser = users.find(u => u.id === userId);
+    if (!targetUser) {
+      return { success: false, error: 'Usuario no encontrado en el sistema.' };
+    }
+    if (targetUser.status === 'inactive') {
+      return { success: false, error: 'Este usuario está inactivo en el sistema. Contacta al Administrador.' };
+    }
+
+    const assignedPin = String(targetUser.pin || '1234').trim();
+    const inputPin = String(pin || '').trim();
+
+    if (!inputPin || assignedPin !== inputPin) {
+      logAuditEvent({
+        action: 'USER_LOGIN',
+        actionTitle: 'Intento de Acceso Denegado',
+        module: 'security',
+        severity: 'warning',
+        targetId: targetUser.id,
+        targetName: targetUser.name,
+        description: `Intento de acceso fallido para "${targetUser.name}". Clave de 4 dígitos incorrecta.`,
+        customUser: targetUser,
+      });
+      return { success: false, error: 'Clave de 4 dígitos incorrecta. Acceso no autenticado.' };
+    }
+
+    // Actualizar último acceso y autenticar
+    const nowIso = new Date().toISOString();
+    setUsers(prev =>
+      prev.map(u => (u.id === userId ? { ...u, lastLogin: nowIso } : u))
+    );
+    setCurrentUserId(userId);
+    setIsAuthenticated(true);
+    sessionStorage.setItem(STORAGE_KEYS.AUTH_SESSION, JSON.stringify({
+      userId: targetUser.id,
+      authenticatedAt: nowIso,
+    }));
+
+    logAuditEvent({
+      action: 'USER_LOGIN',
+      actionTitle: 'Inicio de Sesión Exitoso',
+      module: 'security',
+      severity: 'info',
+      targetId: targetUser.id,
+      targetName: targetUser.name,
+      description: `El usuario "${targetUser.name}" (${targetUser.roleTitle}) ha autenticado su acceso correctamente con su clave de 4 dígitos.`,
+      customUser: targetUser,
+    });
+
+    return { success: true };
+  };
+
+  const logout = () => {
+    sessionStorage.removeItem(STORAGE_KEYS.AUTH_SESSION);
+    setIsAuthenticated(false);
+
+    logAuditEvent({
+      action: 'USER_LOGOUT',
+      actionTitle: 'Cierre de Sesión',
+      module: 'security',
+      severity: 'info',
+      targetId: currentUser.id,
+      targetName: currentUser.name,
+      description: `Sesión de "${currentUser.name}" finalizada. Plataforma bloqueada.`,
+      customUser: currentUser,
+    });
+  };
+
   const setCurrentUser = (user: User) => {
     setCurrentUserId(user.id);
   };
 
-  const switchUser = (userId: string, pin?: string): { success: boolean; error?: string } => {
+  const switchUser = (userId: string, pin: string): { success: boolean; error?: string } => {
     const targetUser = users.find(u => u.id === userId);
     if (!targetUser) {
-      return { success: false, error: 'Usuario no encontrado.' };
+      return { success: false, error: 'Usuario no encontrado en el sistema.' };
     }
     if (targetUser.status === 'inactive') {
       return { success: false, error: 'Este usuario está inactivo. Contacta a un Administrador.' };
     }
 
-    if (settings.enableAuditLock && targetUser.pin && pin && targetUser.pin !== pin) {
-      return { success: false, error: 'PIN de seguridad incorrecto.' };
+    const assignedPin = String(targetUser.pin || '1234').trim();
+    const inputPin = String(pin || '').trim();
+
+    if (!inputPin || assignedPin !== inputPin) {
+      logAuditEvent({
+        action: 'USER_SWITCH',
+        actionTitle: 'Cambio de Sesión Bloqueado',
+        module: 'security',
+        severity: 'warning',
+        targetId: targetUser.id,
+        targetName: targetUser.name,
+        description: `Intento denegado de cambiar a "${targetUser.name}": clave de 4 dígitos incorrecta o ausente.`,
+        customUser: currentUser,
+      });
+      return { 
+        success: false, 
+        error: 'Clave de 4 dígitos incorrecta. El sistema no permite acceder a otro usuario sin autenticar su clave asignada.' 
+      };
     }
 
-    // Update lastLogin
+    // Actualizar último acceso y transferir sesión activa
+    const nowIso = new Date().toISOString();
     setUsers(prev =>
-      prev.map(u => (u.id === userId ? { ...u, lastLogin: new Date().toISOString() } : u))
+      prev.map(u => (u.id === userId ? { ...u, lastLogin: nowIso } : u))
     );
     setCurrentUserId(userId);
+    sessionStorage.setItem(STORAGE_KEYS.AUTH_SESSION, JSON.stringify({
+      userId: targetUser.id,
+      authenticatedAt: nowIso,
+    }));
 
     logAuditEvent({
       action: 'USER_SWITCH',
-      actionTitle: 'Cambio de Sesión Activa',
+      actionTitle: 'Cambio de Sesión Autenticado',
       module: 'security',
       severity: 'info',
       targetId: targetUser.id,
       targetName: targetUser.name,
-      description: `Sesión activa cambiada a ${targetUser.name} (${targetUser.roleTitle}).`,
+      description: `Sesión transferida exitosamente a "${targetUser.name}" (${targetUser.roleTitle}) tras autenticar clave de 4 dígitos.`,
       customUser: targetUser,
     });
 
@@ -758,7 +864,10 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         settings,
         users,
         currentUser,
+        isAuthenticated,
         auditLogs,
+        login,
+        logout,
         setCurrentUser,
         switchUser,
         addUser,
