@@ -107,6 +107,8 @@ export type AuditActionType =
   | 'USER_UPDATE'
   | 'USER_DELETE'
   | 'USER_SWITCH'
+  | 'USER_LOGIN'
+  | 'USER_LOGOUT'
   | 'SETTINGS_UPDATE'
   | 'DATA_EXPORT'
   | 'DATABASE_RESET'
