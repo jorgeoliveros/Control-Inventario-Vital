@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { X, UserCheck, Shield, Key, AlertCircle, CheckCircle2, Lock, ArrowRight } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, UserCheck, Shield, Key, AlertCircle, CheckCircle2, Lock, ArrowRight, RotateCcw } from 'lucide-react';
 import { User } from '../../types';
 import { useInventory } from '../../context/InventoryContext';
 
@@ -7,23 +7,42 @@ interface SwitchUserModalProps {
   isOpen: boolean;
   onClose: () => void;
   onOpenNewUserModal: () => void;
+  initialTargetUserId?: string;
 }
 
 export const SwitchUserModal: React.FC<SwitchUserModalProps> = ({
   isOpen,
   onClose,
   onOpenNewUserModal,
+  initialTargetUserId,
 }) => {
-  const { users, currentUser, switchUser, settings } = useInventory();
+  const { users, currentUser, switchUser } = useInventory();
   const [selectedUserId, setSelectedUserId] = useState<string>(currentUser.id);
   const [pinInput, setPinInput] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
+  const [isSuccess, setIsSuccess] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      if (initialTargetUserId && users.some(u => u.id === initialTargetUserId)) {
+        setSelectedUserId(initialTargetUserId);
+      } else {
+        setSelectedUserId(currentUser.id);
+      }
+      setPinInput('');
+      setErrorMsg('');
+      setIsSuccess(false);
+    }
+  }, [isOpen, initialTargetUserId, currentUser.id, users]);
 
   if (!isOpen) return null;
 
+  const targetUser = users.find(u => u.id === selectedUserId) || currentUser;
+  const isSwitchingToDifferentUser = selectedUserId !== currentUser.id;
+
   const handleSelect = (user: User) => {
     if (user.status === 'inactive') {
-      setErrorMsg('Este usuario se encuentra inactivo.');
+      setErrorMsg('Este usuario se encuentra inactivo. Contacta a un administrador.');
       return;
     }
     setSelectedUserId(user.id);
@@ -33,16 +52,30 @@ export const SwitchUserModal: React.FC<SwitchUserModalProps> = ({
 
   const handleConfirmSwitch = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (selectedUserId === currentUser.id) {
+
+    if (!isSwitchingToDifferentUser) {
       onClose();
       return;
     }
 
-    const res = switchUser(selectedUserId, pinInput);
+    if (!pinInput.trim()) {
+      setErrorMsg('Debes ingresar la clave de 4 dígitos asignada para autenticar el acceso.');
+      return;
+    }
+
+    if (pinInput.trim().length !== 4) {
+      setErrorMsg('La clave debe tener exactamente 4 dígitos.');
+      return;
+    }
+
+    const res = switchUser(selectedUserId, pinInput.trim());
     if (!res.success) {
-      setErrorMsg(res.error || 'Error al cambiar de usuario.');
+      setErrorMsg(res.error || 'Clave de 4 dígitos incorrecta. Acceso no autenticado.');
     } else {
-      onClose();
+      setIsSuccess(true);
+      setTimeout(() => {
+        onClose();
+      }, 400);
     }
   };
 
@@ -77,14 +110,14 @@ export const SwitchUserModal: React.FC<SwitchUserModalProps> = ({
         <div className="flex items-center justify-between px-6 py-4 border-b border-stone-200 bg-stone-50">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-stone-900 text-white flex items-center justify-center font-bold">
-              <UserCheck className="w-5 h-5" />
+              <Lock className="w-5 h-5 text-emerald-400" />
             </div>
             <div>
               <h2 className="text-base font-bold text-stone-900 font-['Outfit',sans-serif]">
                 Cambiar Sesión de Usuario
               </h2>
               <p className="text-xs text-stone-500">
-                Selecciona tu perfil para registrar movimientos a tu nombre en la bitácora
+                Autenticación obligatoria con clave de 4 dígitos para acceder a otra cuenta
               </p>
             </div>
           </div>
@@ -97,8 +130,12 @@ export const SwitchUserModal: React.FC<SwitchUserModalProps> = ({
         </div>
 
         {/* User Selection List */}
-        <div className="p-6 space-y-4">
-          <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+        <form onSubmit={handleConfirmSwitch} className="p-6 space-y-4">
+          <label className="block text-xs font-bold uppercase tracking-wider text-stone-600">
+            1. Seleccionar Usuario de Destino
+          </label>
+
+          <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
             {users.map((user) => {
               const isSelected = selectedUserId === user.id;
               const isCurrent = currentUser.id === user.id;
@@ -110,7 +147,7 @@ export const SwitchUserModal: React.FC<SwitchUserModalProps> = ({
                   key={user.id}
                   onClick={() => handleSelect(user)}
                   disabled={isInactive}
-                  className={`w-full flex items-center justify-between p-3.5 rounded-xl border text-left transition-all cursor-pointer ${
+                  className={`w-full flex items-center justify-between p-3 rounded-xl border text-left transition-all cursor-pointer ${
                     isInactive
                       ? 'opacity-40 bg-stone-100 border-stone-200 cursor-not-allowed'
                       : isSelected
@@ -119,7 +156,7 @@ export const SwitchUserModal: React.FC<SwitchUserModalProps> = ({
                   }`}
                 >
                   <div className="flex items-center gap-3">
-                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm font-['Outfit',sans-serif] ${getAvatarBg(user.avatarColor)}`}>
+                    <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-sm font-['Outfit',sans-serif] ${getAvatarBg(user.avatarColor)}`}>
                       {user.initials}
                     </div>
                     <div>
@@ -127,7 +164,7 @@ export const SwitchUserModal: React.FC<SwitchUserModalProps> = ({
                         <span className="text-sm font-bold text-stone-900">{user.name}</span>
                         {isCurrent && (
                           <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
-                            Actual
+                            Sesión Activa
                           </span>
                         )}
                         {isInactive && (
@@ -137,7 +174,7 @@ export const SwitchUserModal: React.FC<SwitchUserModalProps> = ({
                         )}
                       </div>
                       <div className="flex items-center gap-2 mt-0.5">
-                        <span className={`text-[11px] font-medium px-2 py-0.2 rounded-md border ${getRoleBadge(user.role)}`}>
+                        <span className={`text-[10px] font-medium px-2 py-0.2 rounded-md border ${getRoleBadge(user.role)}`}>
                           {user.roleTitle}
                         </span>
                         <span className="text-xs text-stone-400 hidden sm:inline">&middot; {user.email}</span>
@@ -155,65 +192,92 @@ export const SwitchUserModal: React.FC<SwitchUserModalProps> = ({
             })}
           </div>
 
-          {/* Optional PIN if system lock is enabled or user wants verification */}
-          {settings.enableAuditLock && (
-            <div className="pt-3 border-t border-stone-200">
-              <label className="block text-xs font-bold uppercase tracking-wider text-stone-600 mb-1">
-                PIN de Seguridad de 4 dígitos
-              </label>
+          {/* Mandatory 4-digit PIN section for switching */}
+          {isSwitchingToDifferentUser ? (
+            <div className="pt-4 border-t border-stone-200 space-y-3">
+              <div className="flex items-center justify-between">
+                <label className="block text-xs font-bold uppercase tracking-wider text-stone-800 flex items-center gap-1.5">
+                  <Key className="w-4 h-4 text-emerald-700" />
+                  2. Clave de 4 Dígitos de {targetUser.name}
+                </label>
+                <span className="text-[11px] text-stone-500 font-medium">
+                  Obligatorio
+                </span>
+              </div>
+
+              <p className="text-xs text-stone-600">
+                Introduce la clave de 4 dígitos asignada a <strong>{targetUser.name}</strong> para autenticar el cambio de sesión:
+              </p>
+
               <div className="relative">
-                <Key className="w-4 h-4 text-stone-400 absolute left-3 top-3" />
                 <input
                   type="password"
                   maxLength={4}
                   value={pinInput}
-                  onChange={(e) => setPinInput(e.target.value.replace(/\D/g, ''))}
-                  placeholder="Introduce tu PIN..."
-                  className="w-full pl-9 pr-3 py-2 text-sm border border-stone-300 rounded-xl font-mono text-center tracking-widest focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  autoFocus
+                  onChange={(e) => {
+                    setPinInput(e.target.value.replace(/\D/g, ''));
+                    setErrorMsg('');
+                  }}
+                  placeholder="••••"
+                  className="w-full px-4 py-2.5 text-center text-lg font-mono tracking-widest border-2 border-stone-300 rounded-xl focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 bg-stone-50"
                 />
               </div>
+            </div>
+          ) : (
+            <div className="pt-3 border-t border-stone-200">
+              <p className="text-xs text-stone-500 italic text-center">
+                Has seleccionado tu propio perfil activo actual.
+              </p>
             </div>
           )}
 
           {errorMsg && (
-            <div className="flex items-center gap-2 p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-700">
-              <AlertCircle className="w-4 h-4 shrink-0" />
+            <div className="flex items-center gap-2 p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-700 animate-in fade-in">
+              <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
               <span>{errorMsg}</span>
             </div>
           )}
-        </div>
 
-        {/* Footer */}
-        <div className="flex items-center justify-between px-6 py-4 border-t border-stone-200 bg-stone-50">
-          <button
-            type="button"
-            onClick={() => {
-              onClose();
-              onOpenNewUserModal();
-            }}
-            className="text-xs font-bold text-emerald-700 hover:text-emerald-800 hover:underline cursor-pointer"
-          >
-            + Crear Nuevo Usuario
-          </button>
-          
-          <div className="flex items-center gap-2">
+          {isSuccess && (
+            <div className="flex items-center gap-2 p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-800 animate-in fade-in">
+              <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
+              <span>¡Acceso autenticado! Cambiando sesión activa...</span>
+            </div>
+          )}
+
+          {/* Footer inside form */}
+          <div className="flex items-center justify-between pt-4 border-t border-stone-200">
             <button
               type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-xs font-semibold text-stone-600 hover:text-stone-900 rounded-xl transition-colors cursor-pointer"
+              onClick={() => {
+                onClose();
+                onOpenNewUserModal();
+              }}
+              className="text-xs font-bold text-emerald-700 hover:text-emerald-800 hover:underline cursor-pointer"
             >
-              Cancelar
+              + Crear Nuevo Usuario
             </button>
-            <button
-              type="button"
-              onClick={() => handleConfirmSwitch()}
-              className="px-5 py-2 text-xs font-bold text-white bg-stone-900 hover:bg-black rounded-xl transition-colors shadow-xs cursor-pointer flex items-center gap-1.5"
-            >
-              <span>Acceder</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
+            
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2 text-xs font-semibold text-stone-600 hover:text-stone-900 rounded-xl transition-colors cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                disabled={isSwitchingToDifferentUser && pinInput.length !== 4}
+                className="px-5 py-2 text-xs font-bold text-white bg-stone-900 hover:bg-black rounded-xl transition-colors shadow-xs cursor-pointer flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <span>{isSwitchingToDifferentUser ? 'Autenticar y Cambiar' : 'Continuar'}</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
-        </div>
+        </form>
 
       </div>
     </div>
