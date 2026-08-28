@@ -26,9 +26,10 @@ import { formatDate } from '../utils/formatters';
 
 interface UsersTabProps {
   onSaveUser?: (userData: any, isEdit: boolean, id?: string) => Promise<void> | void;
+  onOpenSwitchUser?: (targetUserId?: string) => void;
 }
 
-export const UsersTab: React.FC<UsersTabProps> = ({ onSaveUser }) => {
+export const UsersTab: React.FC<UsersTabProps> = ({ onSaveUser, onOpenSwitchUser }) => {
   const { 
     users, 
     currentUser, 
@@ -42,6 +43,11 @@ export const UsersTab: React.FC<UsersTabProps> = ({ onSaveUser }) => {
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [deleteConfirmUser, setDeleteConfirmUser] = useState<User | null>(null);
   const [errorBanner, setErrorBanner] = useState<string>('');
+  
+  // PIN Prompt Modal state for local switching if onOpenSwitchUser is not provided
+  const [pinPromptUser, setPinPromptUser] = useState<User | null>(null);
+  const [pinPromptInput, setPinPromptInput] = useState<string>('');
+  const [pinPromptError, setPinPromptError] = useState<string>('');
 
   const canManageUsers = hasPermission('canManageUsers');
 
@@ -85,10 +91,34 @@ export const UsersTab: React.FC<UsersTabProps> = ({ onSaveUser }) => {
     setDeleteConfirmUser(null);
   };
 
-  const handleQuickSwitch = (userId: string) => {
-    const res = switchUser(userId);
+  const handleQuickSwitch = (targetUser: User) => {
+    if (targetUser.status === 'inactive') {
+      setErrorBanner('Este usuario está inactivo. No se puede autenticar el acceso.');
+      return;
+    }
+    if (onOpenSwitchUser) {
+      onOpenSwitchUser(targetUser.id);
+    } else {
+      setPinPromptUser(targetUser);
+      setPinPromptInput('');
+      setPinPromptError('');
+    }
+  };
+
+  const handleConfirmPinSwitch = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!pinPromptUser) return;
+    if (!pinPromptInput.trim()) {
+      setPinPromptError('Debes ingresar la clave de 4 dígitos asignada.');
+      return;
+    }
+    const res = switchUser(pinPromptUser.id, pinPromptInput.trim());
     if (!res.success) {
-      setErrorBanner(res.error || 'Error al cambiar de sesión.');
+      setPinPromptError(res.error || 'Clave de 4 dígitos incorrecta.');
+    } else {
+      setPinPromptUser(null);
+      setPinPromptInput('');
+      setPinPromptError('');
     }
   };
 
@@ -263,6 +293,15 @@ export const UsersTab: React.FC<UsersTabProps> = ({ onSaveUser }) => {
                     <span className="text-stone-500">Último acceso:</span>
                     <span className="font-mono text-[11px] text-stone-600">{formatDate(user.lastLogin)}</span>
                   </div>
+                  <div className="flex items-center justify-between text-xs pt-1 border-t border-stone-200">
+                    <span className="text-stone-500 flex items-center gap-1">
+                      <Key className="w-3 h-3 text-stone-400" />
+                      PIN Asignado:
+                    </span>
+                    <span className="font-mono font-bold text-stone-800 bg-white px-2 py-0.5 rounded border border-stone-200 text-[11px] tracking-widest">
+                      {canManageUsers || isCurrent ? (user.pin || '1234') : '••••'}
+                    </span>
+                  </div>
                 </div>
 
                 {/* Permissions Summary Chips */}
@@ -314,10 +353,10 @@ export const UsersTab: React.FC<UsersTabProps> = ({ onSaveUser }) => {
               <div className="pt-3 border-t border-stone-100 flex items-center justify-between gap-2">
                 {!isCurrent ? (
                   <button
-                    onClick={() => handleQuickSwitch(user.id)}
+                    onClick={() => handleQuickSwitch(user)}
                     disabled={isInactive}
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-stone-800 bg-stone-100 hover:bg-stone-200 rounded-xl transition-colors cursor-pointer disabled:opacity-40"
-                    title="Cambiar sesión activa a este usuario"
+                    title="Cambiar sesión activa a este usuario (requiere clave de 4 dígitos)"
                   >
                     <UserCheck className="w-3.5 h-3.5 text-stone-600" />
                     <span>Cambiar a este usuario</span>
@@ -390,6 +429,62 @@ export const UsersTab: React.FC<UsersTabProps> = ({ onSaveUser }) => {
                 Sí, Eliminar Usuario
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Fallback Inline PIN Prompt Modal */}
+      {pinPromptUser && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-stone-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-stone-200 animate-in fade-in zoom-in-95 duration-150">
+            <div className="w-12 h-12 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center mx-auto mb-4">
+              <Key className="w-6 h-6" />
+            </div>
+            <h3 className="text-base font-bold text-stone-900 text-center mb-1 font-['Outfit',sans-serif]">
+              Autenticar a "{pinPromptUser.name}"
+            </h3>
+            <p className="text-xs text-stone-500 text-center mb-4 leading-relaxed">
+              Introduce la clave de 4 dígitos asignada a este usuario para transferir la sesión activa:
+            </p>
+            
+            <form onSubmit={handleConfirmPinSwitch} className="space-y-4">
+              <input
+                type="password"
+                maxLength={4}
+                autoFocus
+                value={pinPromptInput}
+                onChange={(e) => {
+                  setPinPromptInput(e.target.value.replace(/\D/g, ''));
+                  setPinPromptError('');
+                }}
+                placeholder="••••"
+                className="w-full px-4 py-3 text-center text-xl font-mono tracking-widest border-2 border-stone-300 rounded-xl focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 bg-stone-50"
+              />
+
+              {pinPromptError && (
+                <div className="flex items-center gap-2 p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-700">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+                  <span>{pinPromptError}</span>
+                </div>
+              )}
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setPinPromptUser(null)}
+                  className="px-4 py-2 text-xs font-semibold text-stone-600 hover:text-stone-900 rounded-xl cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={pinPromptInput.length !== 4}
+                  className="px-5 py-2 text-xs font-bold text-white bg-stone-900 hover:bg-black rounded-xl transition-colors shadow-xs cursor-pointer disabled:opacity-40"
+                >
+                  Autenticar y Cambiar
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
